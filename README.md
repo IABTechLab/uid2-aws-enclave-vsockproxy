@@ -1,6 +1,8 @@
-# uid2-aws-enclave-vsockproxy
+# Vsock Proxy
 
 Vsock Proxy to proxy TCP connection to vsock and vise versa.
+
+This is intended for UID2 traffic forwarding between host and AWS Nitro Enclaves.
 
 ## How to build
 
