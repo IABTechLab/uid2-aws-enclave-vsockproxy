@@ -14,7 +14,11 @@ namespace vsockio
 	{
 		continuation = false;
 
-		if (_peer->closed()) shutdown();
+		if (_peer->closed()) 
+		{
+			Logger::instance->Log(Logger::DEBUG, "shutdown 1");
+			shutdown();
+		}
 		if (_inputClosed) return;
 
 		while (!_inputClosed && _inputReady && !_peer->queueFull())
@@ -32,6 +36,8 @@ namespace vsockio
 			Logger::instance->Log(Logger::DEBUG, "[socket] sending termination from (fd=", _fd, ")");
 			std::unique_ptr<Buffer> termination{ BufferManager::getEmptyBuffer() };
 			_peer->queue(termination);
+
+			Logger::instance->Log(Logger::DEBUG, "shutdown 2");
 			shutdown();
 			continuation = true;
 		}
@@ -50,6 +56,7 @@ namespace vsockio
 			if (buffer->size() == 0)
 			{
 				Logger::instance->Log(Logger::DEBUG, "[socket] writeToOutput dequeued a termination buffer (fd=", _fd, ")");
+				Logger::instance->Log(Logger::DEBUG, "shutdown 3");
 				shutdown();
 				break;
 			}
@@ -66,6 +73,7 @@ namespace vsockio
 
 		if (_peer->closed() && _sendQueue.empty())
 		{
+			Logger::instance->Log(Logger::DEBUG, "shutdown 4");
 			shutdown();
 		}
 
@@ -169,6 +177,7 @@ namespace vsockio
 
 				Logger::instance->Log(Logger::WARNING, "error on send: ", strerror(err));
 				buffer->setCursor(totalBytes);
+				Logger::instance->Log(Logger::DEBUG, "shutdown 5");
 				shutdown();
 				break;
 			}
@@ -185,6 +194,7 @@ namespace vsockio
 	{
 		if (_inputClosed)
 		{
+			Logger::instance->Log(Logger::DEBUG, "shutdown 6");
 			shutdown();
 		}
 	}
