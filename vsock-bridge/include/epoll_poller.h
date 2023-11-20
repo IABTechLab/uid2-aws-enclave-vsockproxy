@@ -1,9 +1,12 @@
 #pragma once
 
-#include <poller.h>
-#include <sys/epoll.h>
+#include "logger.h"
+#include "poller.h"
+
 #include <cstring>
-#include <logger.h>
+#include <memory>
+
+#include <sys/epoll.h>
 
 namespace vsockio
 {
@@ -11,7 +14,6 @@ namespace vsockio
 	{
 		int _epollFd;
 
-		uint64_t _pollCounter;
 		std::unique_ptr<epoll_event[]> _epollEvents;
 
 		EpollPoller(int maxEvents) : _epollEvents(new epoll_event[maxEvents])
@@ -25,28 +27,46 @@ namespace vsockio
 			}
 		}
 
-		int add(int fd, void* handler, uint32_t events) override
+		bool add(int fd, void* handler, uint32_t events) override
 		{
 			epoll_event ev;
 			memset(&ev, 0, sizeof(epoll_event));
 			ev.data.ptr = handler;
 			ev.events = vsb2epoll(events);
-			return epoll_ctl(_epollFd, EPOLL_CTL_ADD, fd, &ev);
+			if (epoll_ctl(_epollFd, EPOLL_CTL_ADD, fd, &ev) != 0)
+			{
+				const int err = errno;
+				Logger::instance->Log(Logger::ERROR, "epoll_ctl failed to add fd=", fd, ": ", strerror(err));
+				return false;
+			}
+
+			return true;
 		}
 
-		int update(int fd, void* handler, uint32_t events) override
+		bool update(int fd, void* handler, uint32_t events) override
 		{
 			epoll_event ev;
 			memset(&ev, 0, sizeof(epoll_event));
 			ev.data.ptr = handler;
 			ev.events = vsb2epoll(events);
-			return epoll_ctl(_epollFd, EPOLL_CTL_MOD, fd, &ev);
+			if (epoll_ctl(_epollFd, EPOLL_CTL_MOD, fd, &ev) != 0)
+			{
+				const int err = errno;
+				Logger::instance->Log(Logger::ERROR, "epoll_ctl failed to update fd=", fd, ": ", strerror(err));
+				return false;
+			}
+
+			return true;
 		}
 
 		void remove(int fd) override
 		{
 			epoll_event ev;
-			epoll_ctl(_epollFd, EPOLL_CTL_DEL, fd, &ev);
+			if (epoll_ctl(_epollFd, EPOLL_CTL_DEL, fd, &ev) != 0)
+			{
+				const int err = errno;
+				Logger::instance->Log(Logger::ERROR, "epoll_ctl failed to delete fd=", fd, ": ", strerror(err));
+			}
 		}
 
 		int poll(VsbEvent* outEvents, int timeout) override

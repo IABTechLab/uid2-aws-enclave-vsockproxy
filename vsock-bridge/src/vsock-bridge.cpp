@@ -56,12 +56,12 @@ void start_services(std::vector<service_description>& services, int numIOThreads
 
     for (int i = 0; i < numWorkers; i++)
     {
-        WorkerThread* t = new WorkerThread(
+        auto t = std::make_unique<WorkerThread>(
             /*init:*/ []() { 
                 BufferManager::arena->init(512, 2000); 
             }
         );
-        ThreadPool::threads.push_back(t);
+        ThreadPool::threads.push_back(std::move(t));
     }
 
     for (auto& sd : services)
@@ -69,7 +69,7 @@ void start_services(std::vector<service_description>& services, int numIOThreads
         std::vector<Dispatcher*>* dispatchers = new std::vector<Dispatcher*>();
         for (int i = 0; i < 1; i++)
         {
-            Dispatcher* d = new Dispatcher(i + 1, new EpollPoller(VSB_MAX_POLL_EVENTS));
+            Dispatcher* d = new Dispatcher(i, new EpollPoller(VSB_MAX_POLL_EVENTS));
             dispatchers->push_back(d);
         }
 

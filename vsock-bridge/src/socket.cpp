@@ -1,69 +1,74 @@
-#include <socket.h>
-#include <logger.h>
+#include "logger.h"
+#include "socket.h"
+
+#include <cassert>
 #include <cstring>
+
+#include <sys/socket.h>
 
 namespace vsockio
 {
-	Socket::Socket(int fd, SocketImpl* impl)
+	Socket::Socket(int fd, SocketImpl& impl)
 		: _fd(fd)
 		, _impl(impl)
-		, Peer(false, false)
-	{}
-
-	void Socket::readFromInput(bool& continuation)
 	{
-		continuation = false;
+		assert(_fd >= 0);
+	}
 
-		if (_peer->closed()) 
+	bool Socket::readFromInput()
+	{
+		if (_peer->outputClosed() && !inputClosed())
 		{
-			Logger::instance->Log(Logger::DEBUG, "shutdown 1");
-			shutdown();
+			Logger::instance->Log(Logger::DEBUG, "[socket] readToInput detected output peer closed, closing input (fd=", _fd, ")");
+			closeInput();
+			return false;
 		}
-		if (_inputClosed) return;
 
+		if (_inputClosed) return false;
+
+		bool hasInput = false;
 		while (!_inputClosed && _inputReady && !_peer->queueFull())
 		{
 			std::unique_ptr<Buffer> buffer{ read() };
-			if (buffer != nullptr && buffer->size() > 0)
+			if (buffer && !buffer->empty())
 			{
-				_peer->queue(buffer);
-				continuation = true;
+				_peer->queue(std::move(buffer));
+				hasInput = true;
 			}
 		}
 
 		if (_inputClosed && !_peer->outputClosed())
 		{
-			Logger::instance->Log(Logger::DEBUG, "[socket] sending termination from (fd=", _fd, ")");
+			Logger::instance->Log(Logger::DEBUG, "[socket] readToInput sending termination from (fd=", _fd, ")");
 			std::unique_ptr<Buffer> termination{ BufferManager::getEmptyBuffer() };
-			_peer->queue(termination);
+			_peer->queue(std::move(termination));
 
-			Logger::instance->Log(Logger::DEBUG, "shutdown 2");
-			shutdown();
-			continuation = true;
+			hasInput = true;
 		}
+
+		return hasInput;
 	}
 
-	void Socket::writeToOutput(bool& continuation)
+	bool Socket::writeToOutput()
 	{
-		continuation = false;
+		if (_outputClosed) return false;
 
-		if (_outputClosed) return;
 		while (!_outputClosed && _outputReady && !_sendQueue.empty())
 		{
 			std::unique_ptr<Buffer>& buffer = _sendQueue.front();
 
 			// received termination signal from peer
-			if (buffer->size() == 0)
+			if (buffer->empty())
 			{
 				Logger::instance->Log(Logger::DEBUG, "[socket] writeToOutput dequeued a termination buffer (fd=", _fd, ")");
-				Logger::instance->Log(Logger::DEBUG, "shutdown 3");
-				shutdown();
+				_sendQueue.dequeue();
+				close();
 				break;
 			}
 			else
 			{
-				send(buffer);
-				if (buffer->cursor() == buffer->size())
+				send(*buffer);
+				if (buffer->consumed())
 				{
 					_sendQueue.dequeue();
 					_queueFull = false;
@@ -71,18 +76,28 @@ namespace vsockio
 			}
 		}
 
-		if (_peer->closed() && _sendQueue.empty())
+		if (_peer->closed())
 		{
-			Logger::instance->Log(Logger::DEBUG, "shutdown 4");
-			shutdown();
+			if (_sendQueue.empty())
+			{
+				Logger::instance->Log(Logger::DEBUG, "[socket] writeToOutput detected input peer is closed, closing (fd=", _fd, ")");
+				close();
+			}
+			else if (!_peer->queueEmpty())
+			{
+				// Peer has some data they never received
+				// Assuming this data is critical for the protocol, it should be ok to abort the connection straight away
+				Logger::instance->Log(Logger::DEBUG, "[socket] writeToOutput detected input peer is closed while having data remaining, closing (fd=", _fd, ")");
+				close();
+			}
 		}
 
-		continuation = _sendQueue.empty();
+		return _sendQueue.empty();
 	}
 
-	void Socket::queue(std::unique_ptr<Buffer>& buffer)
+	void Socket::queue(std::unique_ptr<Buffer>&& buffer)
 	{
-		_sendQueue.enqueue(buffer);
+		_sendQueue.enqueue(std::move(buffer));
 
 		// to simplify logic we allow only 1 buffer for socket sinks
 		_queueFull = true;
@@ -91,20 +106,21 @@ namespace vsockio
 	std::unique_ptr<Buffer> Socket::read()
 	{
 		std::unique_ptr<Buffer> buffer{ BufferManager::getBuffer() };
-		ssize_t bytesRead;
-		ssize_t totalBytes = 0;
+		int bytesRead;
+		int totalBytes = 0;
 
 		while (true)
 		{
-			bytesRead = _impl->read(_fd, buffer->offset(totalBytes), (ssize_t)buffer->capacity() - totalBytes);
+			bytesRead = _impl.read(_fd, buffer->tail(), buffer->remainingCapacity());
 			int err = 0;
 			if (bytesRead > 0)
 			{
 				// New content read
 				// update byte count and enlarge buffer if needed
 
-				totalBytes += bytesRead;
-				if (totalBytes == buffer->capacity() && !buffer->tryNewPage())
+				//Logger::instance->Log(Logger::DEBUG, "[socket] read returns ", bytesRead, " (fd=", _fd, ")");
+				buffer->produce(bytesRead);
+				if (!buffer->ensureCapacity())
 				{
 					break;
 				}
@@ -112,7 +128,8 @@ namespace vsockio
 			else if (bytesRead == 0)
 			{
 				// Source closed
-				// Shutdown ourself and queue close message to peer
+				// Mark input as closed, but not close the whole socket as this can close the peer
+				// before it gets the chance to consume/send all the queued input
 
 				Logger::instance->Log(Logger::DEBUG, "[socket] read returns 0 (fd=", _fd, ")");
 				closeInput();
@@ -128,28 +145,24 @@ namespace vsockio
 			else
 			{
 				// Error
+				// Do not close the whole socket as this would also close the peer without giving it chance
+				// to consume/send all the data queued so far
 
-				Logger::instance->Log(Logger::WARNING, "error on read: ", strerror(err));
+				Logger::instance->Log(Logger::WARNING, "[socket] error on read, closing (fd=", _fd, "): ", strerror(err));
 				closeInput();
 				break;
 			}
 		}
 
-		buffer->setSize(totalBytes);
-		buffer->setCursor(0);
 		return buffer;
 	}
 
-	void Socket::send(std::unique_ptr<Buffer>& buffer)
+	void Socket::send(Buffer& buffer)
 	{
-		ssize_t bytesWritten;
-		ssize_t totalBytes = buffer->cursor();
-		while (true)
+		int bytesWritten;
+		while (!buffer.consumed())
 		{
-			ssize_t pageLimit = buffer->pageLimit(totalBytes);
-			ssize_t dataRemaining = buffer->size() - totalBytes;
-			ssize_t lengthToWrite = pageLimit < dataRemaining ? pageLimit : dataRemaining;
-			bytesWritten = _impl->write(_fd, buffer->offset(totalBytes), lengthToWrite);
+			bytesWritten = _impl.write(_fd, buffer.head(), buffer.headLimit());
 
 			int err = 0;
 			if (bytesWritten > 0)
@@ -157,17 +170,12 @@ namespace vsockio
 				// Some data written to downstream
 				// log bytes written and move cursor forward
 
-				totalBytes += bytesWritten;
-				buffer->setCursor(totalBytes);
-				if (totalBytes == buffer->size())
-				{
-					break;
-				}
+				//Logger::instance->Log(Logger::DEBUG, "[socket] write returns ", bytesWritten, " (fd=", _fd, ")");
+				buffer.consume(bytesWritten);
 			}
 			else if((err = errno) == EAGAIN || err == EWOULDBLOCK)
 			{
 				// Write blocked
-				buffer->setCursor(totalBytes);
 				_outputReady = false;
 				break;
 			}
@@ -175,10 +183,8 @@ namespace vsockio
 			{
 				// Error
 
-				Logger::instance->Log(Logger::WARNING, "error on send: ", strerror(err));
-				buffer->setCursor(totalBytes);
-				Logger::instance->Log(Logger::DEBUG, "shutdown 5");
-				shutdown();
+				Logger::instance->Log(Logger::WARNING, "[socket] error on send, closing (fd=", _fd, "): ", strerror(err));
+				close();
 				break;
 			}
 		}
@@ -188,18 +194,14 @@ namespace vsockio
 	void Socket::closeInput()
 	{
 		_inputClosed = true;
+
+		// There may be a termination buffer queued by the peer. Poller may not be able to detect that and mark
+		// the socket as ready for write in a timely fashion. Force process the queue now.
+		_outputReady = true;
+		writeToOutput();
 	}
 
-	void Socket::closeOutput()
-	{
-		if (_inputClosed)
-		{
-			Logger::instance->Log(Logger::DEBUG, "shutdown 6");
-			shutdown();
-		}
-	}
-
-	void Socket::shutdown()
+	void Socket::close()
 	{
 		_inputReady = false;
 		_outputReady = false;
@@ -208,27 +210,60 @@ namespace vsockio
 		{
 			_inputClosed = true;
 			_outputClosed = true;
-			Logger::instance->Log(Logger::DEBUG, "socket shutdown, fd=", _fd);
 
-			_impl->close(_fd);
+			if (_poller)
+			{
+				// epoll is meant to automatically deregister sockets on close, but apparently some systems
+				// have bugs around this, so do it explicitly
+				Logger::instance->Log(Logger::DEBUG, "[socket] remove from poller (fd=", _fd, ")");
+				_poller->remove(_fd);
+			}
+
+			Logger::instance->Log(Logger::DEBUG, "[socket] close, fd=", _fd);
+			_impl.close(_fd);
 			if (_peer != nullptr)
 			{
-				_peer->onPeerShutdown();
+				_peer->onPeerClosed();
 			}
 		}
 	}
 
-	void Socket::onPeerShutdown()
+	void Socket::handleError()
+	{
+		Logger::instance->Log(Logger::DEBUG, "[socket] got error from poller (fd=", _fd, ")");
+
+		_inputReady = true;
+		_outputReady = true;
+
+		readFromInput();
+		writeToOutput();
+	}
+
+	void Socket::onPeerClosed()
 	{
 		if (!closed())
 		{
-			Logger::instance->Log(Logger::DEBUG, "[socket] sending termination from (fd=", _fd, ")");
+			Logger::instance->Log(Logger::DEBUG, "[socket] sending termination for (fd=", _fd, ")");
 			std::unique_ptr<Buffer> termination{ BufferManager::getEmptyBuffer() };
-			queue(termination);
-			bool _;
-			writeToOutput(_);
+			queue(std::move(termination));
+
+			// force process the queue
+			_outputReady = true;
+			writeToOutput();
 		}
 	}
 
-	Socket::~Socket() {}
+	Socket::~Socket()
+	{
+		if (!closed())
+		{
+			Logger::instance->Log(Logger::WARNING, "[socket] closing on destruction (fd=", _fd, ")");
+			close();
+		}
+
+		if (_peer != nullptr)
+		{
+			_peer->setPeer(nullptr);
+		}
+	}
 }

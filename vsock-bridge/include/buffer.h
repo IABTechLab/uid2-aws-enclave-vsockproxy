@@ -1,29 +1,30 @@
 #pragma once
 
-#include <unistd.h>
-#include <stdint.h>
+#include "logger.h"
+
+#include <algorithm>
+#include <cassert>
+#include <cstdint>
 #include <iostream>
-#include <vector>
 #include <list>
-#include <logger.h>
+#include <memory>
+#include <vector>
+
+#include <unistd.h>
 
 namespace vsockio
 {
 	struct MemoryBlock
 	{
-		MemoryBlock(uint8_t* startPtr, class MemoryArena* region)
-			: _startPtr(startPtr), _region(region) {}
+		MemoryBlock(int size, class MemoryArena* region)
+			: _startPtr(new uint8_t[size]), _region(region) {}
 
-		MemoryBlock(MemoryBlock&& other) : _startPtr(other._startPtr), _region(other._region) {}
-
-		MemoryBlock(const MemoryBlock& other) = delete;
-
-		uint8_t* offset(int x) 
+		uint8_t* offset(int x) const
 		{
-			return _startPtr + x;
+			return _startPtr.get() + x;
 		}
 
-		uint8_t* _startPtr;
+		std::unique_ptr<uint8_t[]> _startPtr;
 		class MemoryArena* _region;
 	};
 	
@@ -31,27 +32,22 @@ namespace vsockio
 	{
 		std::vector<MemoryBlock> _blocks;
 		std::list<MemoryBlock*> _handles;
-		uint8_t* _memoryStart;
-		uint32_t _blockSizeInBytes;
-		int _numBlocks;
-		bool _initialized;
+		uint32_t _blockSizeInBytes = 0;
+		bool _initialized = false;
 
-		MemoryArena() 
-			: _initialized(false), _numBlocks(0), _memoryStart(nullptr), _blocks{} {}
+		MemoryArena() = default;
 
-		void init(uint32_t blockSize, int numBlocks)
+		void init(int blockSize, int numBlocks)
 		{
 			if (_initialized) throw;
 
 			Logger::instance->Log(Logger::INFO, "Thread-local memory arena init: blockSize=", blockSize, ", numBlocks=", numBlocks);
 
-			_numBlocks = numBlocks;
 			_blockSizeInBytes = blockSize;
-			_memoryStart = static_cast<uint8_t*>(malloc(blockSize * numBlocks * sizeof(uint8_t)));
 
 			for (int i = 0; i < numBlocks; i++)
 			{
-				_blocks.emplace_back(MemoryBlock( startPtrOf(i), this ));
+				_blocks.emplace_back(blockSize, this);
 			}
 
 			for (int i = 0; i < numBlocks; i++)
@@ -60,11 +56,6 @@ namespace vsockio
 			}
 			
 			_initialized = true;
-		}
-
-		inline uint8_t* startPtrOf(int blockIndex) const
-		{
-			return _memoryStart + (blockIndex * _blockSizeInBytes);
 		}
 
 		MemoryBlock* get()
@@ -77,7 +68,7 @@ namespace vsockio
 			}
 			else
 			{
-				return new MemoryBlock(new uint8_t[_blockSizeInBytes], nullptr);
+				return new MemoryBlock(_blockSizeInBytes, nullptr);
 			}
 		}
 
@@ -85,11 +76,10 @@ namespace vsockio
 		{
 			if (mb->_region == this)
 			{
-				_handles.push_back(mb);
+				_handles.push_front(mb);
 			}
 			else if (mb->_region == nullptr)
 			{
-				delete[] mb->_startPtr;
 				delete mb;
 			}
 			else
@@ -111,7 +101,7 @@ namespace vsockio
 		MemoryBlock* _pages[MAX_PAGES];
 		MemoryArena* _arena;
 
-		Buffer(MemoryArena* arena) : _arena(arena), _pageCount{ 0 }, _cursor{ 0 }, _size{ 0 }, _pageSize(arena->blockSize()) {}
+		explicit Buffer(MemoryArena* arena) : _arena(arena), _pageCount{ 0 }, _cursor{ 0 }, _size{ 0 }, _pageSize(arena->blockSize()) {}
 
 		Buffer(Buffer&& b) : _arena(b._arena), _pageCount(b._pageCount), _cursor(b._cursor), _size(b._size), _pageSize(b._arena->blockSize())
 		{
@@ -122,49 +112,8 @@ namespace vsockio
 			b._pageCount = 0; // prevent _pages being destructed by old object
 		}
 
-		Buffer(const Buffer& _) = delete;
-
-		bool tryNewPage()
-		{
-			if (_pageCount >= MAX_PAGES) return false;
-			_pages[_pageCount++] = _arena->get();
-			return true;
-		}
-
-		uint8_t* offset(ssize_t x)
-		{
-			return _pages[x / _pageSize]->offset(x % _pageSize);
-		}
-
-		size_t capacity() const
-		{
-			return _pageCount * _pageSize;
-		}
-
-		void setCursor(size_t cursor)
-		{
-			_cursor = cursor;
-		}
-
-		size_t cursor() const
-		{
-			return _cursor;
-		}
-
-		size_t pageLimit(ssize_t x)
-		{
-			return _pageSize - (x % _pageSize);
-		}
-
-		void setSize(size_t size)
-		{
-			_size = size;
-		}
-
-		size_t size() const
-		{
-			return _size;
-		}
+		Buffer(const Buffer&) = delete;
+		Buffer& operator=(const Buffer&) = delete;
 
 		~Buffer()
 		{
@@ -173,22 +122,99 @@ namespace vsockio
 				_arena->put(_pages[i]);
 			}
 		}
+
+		uint8_t* tail() const
+		{
+			return offset(_size);
+		}
+
+		int remainingCapacity() const
+		{
+			return capacity() - _size;
+		}
+
+		void produce(int size)
+		{
+			_size += size;
+		}
+
+		bool ensureCapacity()
+		{
+			return remainingCapacity() > 0 || tryNewPage();
+		}
+
+		uint8_t* head() const
+		{
+			return offset(_cursor);
+		}
+
+		int headLimit() const
+		{
+			return std::min(pageLimit(_cursor), _size - _cursor);
+		}
+
+		void consume(int size)
+		{
+			_cursor += size;
+		}
+
+		bool tryNewPage()
+		{
+			if (_pageCount >= MAX_PAGES) return false;
+			_pages[_pageCount++] = _arena->get();
+			return true;
+		}
+
+		uint8_t* offset(int x) const
+		{
+			return _pages[x / _pageSize]->offset(x % _pageSize);
+		}
+
+		int capacity() const
+		{
+			return _pageCount * _pageSize;
+		}
+
+		int pageLimit(int x) const
+		{
+			return _pageSize - (x % _pageSize);
+		}
+
+		int cursor() const
+		{
+			return _cursor;
+		}
+
+		int size() const
+		{
+			return _size;
+		}
+
+		bool empty() const
+		{
+			return _size <= 0;
+		}
+
+		bool consumed() const
+		{
+			return _cursor >= _size;
+		}
 	};
 
 	struct BufferManager
 	{
 		thread_local static MemoryArena* arena;
 
-		static Buffer* getBuffer()
+		static std::unique_ptr<Buffer> getBuffer()
 		{
-			Buffer* b = new Buffer(arena);
+			auto b = std::make_unique<Buffer>(arena);
 			b->tryNewPage();
 			return b;
 		}
 
-		static Buffer* getEmptyBuffer()
+		static std::unique_ptr<Buffer> getEmptyBuffer()
 		{
-			return new Buffer(arena);
+			return std::make_unique<Buffer>(arena);
 		}
 	};
 

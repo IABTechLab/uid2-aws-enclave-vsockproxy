@@ -1,8 +1,8 @@
 #pragma once
 
-#include <stdint.h>
-#include <vector>
+#include <cstdint>
 #include <string>
+#include <vector>
 
 namespace vsockproxy
 {

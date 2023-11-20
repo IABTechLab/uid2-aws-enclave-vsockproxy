@@ -26,22 +26,22 @@ struct MockPoller : public Poller
 		_maxEvents = maxEvents;
 	}
 
-	int add(int fd, void* handler, uint32_t events) override
+	bool add(int fd, void* handler, uint32_t events) override
 	{
 		Logger::instance->Log(Logger::INFO, "add: ", fd, ",", (uint64_t)handler, ",", events);
 		_fdMap[fd].fd = fd;
 		_fdMap[fd].handler = handler;
 		_fdMap[fd].listeningEvents = events;
-		return 0;
+		return true;
 	}
 
-	int update(int fd, void* handler, uint32_t events) override
+	bool update(int fd, void* handler, uint32_t events) override
 	{
 		Logger::instance->Log(Logger::INFO, "update: ", fd, ",", (uint64_t)handler, ",", events);
 		_fdMap[fd].fd = fd;
 		_fdMap[fd].handler = handler;
 		_fdMap[fd].listeningEvents = events;
-		return 0;
+		return true;
 	}
 
 	void remove(int fd) override

@@ -1,7 +1,10 @@
 #pragma once
 
+#include "peer.h"
+#include "poller.h"
+
 #include <functional>
-#include <peer.h>
+#include <memory>
 
 namespace vsockio
 {
@@ -25,37 +28,51 @@ namespace vsockio
 			close(closeImpl) {}
 	};
 
-	struct Socket : public Peer<std::unique_ptr<Buffer>>
+	class Socket : public Peer<std::unique_ptr<Buffer>>
 	{
-		void readFromInput(bool& continuation) override;
+	public:
+		Socket(int fd, SocketImpl& impl);
 
-		void writeToOutput(bool& continuation) override;
-
-		void shutdown() override;
-
-		void onPeerShutdown() override;
-
-		void queue(std::unique_ptr<Buffer>& buffer) override;
-
-		std::unique_ptr<Buffer> read();
-
-		void send(std::unique_ptr<Buffer>& buffer);
-
-		void closeInput();
-
-		void closeOutput();
-
-		inline int fd() const { return _fd; }
-
-		Socket(int fd, SocketImpl* impl);
-
-		Socket(const Socket& _) = delete;
+		Socket(const Socket&) = delete;
+		Socket& operator=(const Socket&) = delete;
 
 		~Socket();
 
+		inline int fd() const { return _fd; }
+
+		void close() override;
+
+		bool queueEmpty() const override { return _sendQueue.empty(); }
+
+		void setPoller(Poller* poller)
+		{
+			_poller = poller;
+		}
+
+	protected:
+		bool readFromInput() override;
+
+		bool writeToOutput() override;
+
+		void handleError() override;
+
+		void onPeerClosed() override;
+
+		void queue(std::unique_ptr<Buffer>&& buffer) override;
+
+		int name() const override { return _fd; }
+
 	private:
-		SocketImpl* _impl;
+		std::unique_ptr<Buffer> read();
+
+		void send(Buffer& buffer);
+
+		void closeInput();
+
+	private:
+		SocketImpl& _impl;
 		UniquePtrQueue<Buffer> _sendQueue;
 		int _fd;
+		Poller* _poller = nullptr;
 	};
 }
