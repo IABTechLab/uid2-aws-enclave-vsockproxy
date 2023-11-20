@@ -84,12 +84,6 @@ namespace vsockio
 			--_ioEventCount;
 		}
 
-		void onError()
-		{
-			handleError();
-			--_ioEventCount;
-		}
-
 		inline void setPeer(Peer* p)
 		{
 			_peer = p;
@@ -118,10 +112,6 @@ namespace vsockio
 		virtual bool readFromInput() = 0;
 
 		virtual bool writeToOutput() = 0;
-
-		virtual void handleError() = 0;
-
-		virtual int name() const = 0;
 
 	protected:
 		bool _inputReady = false;

@@ -54,13 +54,9 @@ namespace vsockio
 
 		bool writeToOutput() override;
 
-		void handleError() override;
-
 		void onPeerClosed() override;
 
 		void queue(std::unique_ptr<Buffer>&& buffer) override;
-
-		int name() const override { return _fd; }
 
 	private:
 		std::unique_ptr<Buffer> read();

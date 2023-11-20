@@ -205,6 +205,13 @@ namespace vsockio
 					if (!node->inUse() || node->_channel->canBeTerminated())
 					{
 						Logger::instance->Log(Logger::DEBUG, "destroying channel id=", it->first);
+
+						// any resources allocated on channel thread must be freed there
+						if (node->inUse())
+						{
+							node->_channel.release()->terminate();
+						}
+
 						it = _channels.erase(it);
 					}
 					else

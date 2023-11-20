@@ -517,6 +517,11 @@ TEST_CASE("Dispatcher", "[dispatcher]")
 	REQUIRE(channel->_channel->canBeTerminated());
 
 	ex.taskloop();
+	for (; retry < 100 && channel->inUse(); retry++)
+	{
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
+	}
+
 	REQUIRE(channel->inUse() == false);
 
 	for (int i = 0; i < ThreadPool::threads.size(); i++)

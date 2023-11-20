@@ -228,17 +228,6 @@ namespace vsockio
 		}
 	}
 
-	void Socket::handleError()
-	{
-		Logger::instance->Log(Logger::DEBUG, "[socket] got error from poller (fd=", _fd, ")");
-
-		_inputReady = true;
-		_outputReady = true;
-
-		readFromInput();
-		writeToOutput();
-	}
-
 	void Socket::onPeerClosed()
 	{
 		if (!closed())

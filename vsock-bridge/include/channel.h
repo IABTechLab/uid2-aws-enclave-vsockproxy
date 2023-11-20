@@ -72,6 +72,11 @@ namespace vsockio
 			}
 		}
 
+		void terminate()
+		{
+			_taskQueue->enqueue([this] { delete this; });
+		}
+
 		bool canBeTerminated() const
 		{
 			return _a->closed() && _b->closed() && _a->ioEventCount() == 0 && _b->ioEventCount() == 0;
