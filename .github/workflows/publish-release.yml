@@ -1,0 +1,56 @@
+name: Publish release Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (major.minor.patch)"
+        required: true
+      ref:
+        description: "Commit hash"
+        default: ""
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: amazonlinux:2
+    strategy:
+      matrix:
+        build_type: [relwithdebinfo]
+    steps:
+      - name: Set up Dev Environment
+        run: |
+          yum groupinstall -y "Development Tools"
+          yum install -y cmake3 valgrind git
+
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{inputs.ref}}
+
+      - name: Build and Test
+        run: |
+          cmake3 -S . -B build -DCMAKE_BUILD_TYPE=${{matrix.build_type}} -DRELEASE_VERSION=${{inputs.version}}
+          cd build
+          make package
+          make test
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          tag_name: v${{ inputs.version }}
+          release_name: v${{ inputs.version }}
+          draft: true
+          prerelease: false
+
+      - name: upload linux artifact
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: build/vsock-bridge-${{inputs.version}}.tar.gz
+          asset_name: vsock-bridge-${{inputs.version}}.tar.gz
+          asset_content_type: application/tar+gzip

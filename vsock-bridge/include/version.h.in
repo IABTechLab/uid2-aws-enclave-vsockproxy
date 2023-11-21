@@ -1,0 +1,3 @@
+#pragma once
+
+#define VSOCK_BRIDGE_VERSION "@PROJECT_VERSION@"

@@ -1,4 +1,5 @@
-﻿#include <vsock-bridge.h>
+﻿#include "version.h"
+#include "vsock-bridge.h"
 
 using namespace vsockio;
 using namespace vsockproxy;
@@ -114,6 +115,11 @@ void show_help()
         << std::flush;
 }
 
+void show_version()
+{
+	std::cout << VSOCK_BRIDGE_VERSION << std::endl;
+}
+
 void quit_bad_args(const char* reason, bool showhelp)
 {
     std::cout << reason << std::endl;
@@ -147,7 +153,13 @@ int main(int argc, char* argv[])
             exit(0);
         }
 
-        else if (strcmp(argv[i], "-d") == 0 || strcmp(argv[i], "--daemon") == 0)
+		else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--version") == 0)
+		{
+			show_version();
+			exit(0);
+		}
+
+		else if (strcmp(argv[i], "-d") == 0 || strcmp(argv[i], "--daemon") == 0)
         {
             daemonize = true;
         }

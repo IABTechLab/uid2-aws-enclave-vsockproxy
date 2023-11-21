@@ -1,0 +1,37 @@
+name: Publish pre-release Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Commit hash"
+        default: ""
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: amazonlinux:2
+    strategy:
+      matrix:
+        build_type: [relwithdebinfo]
+    steps:
+      - name: Set up Dev Environment
+        run: |
+          yum groupinstall -y "Development Tools"
+          yum install -y cmake3 valgrind git
+
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{inputs.ref}}
+
+      - name: Build and Test
+        run: |
+          cmake3 -S . -B build -DCMAKE_BUILD_TYPE=${{matrix.build_type}}
+          cd build
+          make package
+          make test
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: Pre-release
+          path: build/*.tar.gz
