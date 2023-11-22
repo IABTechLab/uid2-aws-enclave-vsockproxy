@@ -21,6 +21,12 @@ namespace vsockio
 		{
 			Logger::instance->Log(Logger::DEBUG, "[socket] readToInput detected output peer closed, closing input (fd=", _fd, ")");
 			closeInput();
+
+			// There may be a termination buffer queued by the peer. Poller may not be able to detect that and mark
+			// the socket as ready for write in a timely fashion. Force process the queue now.
+			_outputReady = true;
+			writeToOutput();
+
 			return false;
 		}
 
@@ -37,13 +43,10 @@ namespace vsockio
 			}
 		}
 
-		if (_inputClosed && !_peer->outputClosed())
+		if (_inputClosed)
 		{
-			Logger::instance->Log(Logger::DEBUG, "[socket] readToInput sending termination from (fd=", _fd, ")");
-			std::unique_ptr<Buffer> termination{ BufferManager::getEmptyBuffer() };
-			_peer->queue(std::move(termination));
-
-			hasInput = true;
+			Logger::instance->Log(Logger::DEBUG, "[socket] readToInput detected input closed, closing (fd=", _fd, ")");
+			close();
 		}
 
 		return hasInput;
@@ -85,7 +88,7 @@ namespace vsockio
 			}
 			else if (!_peer->queueEmpty())
 			{
-				// Peer has some data they never received
+				// Peer has some queued data they never received
 				// Assuming this data is critical for the protocol, it should be ok to abort the connection straight away
 				Logger::instance->Log(Logger::DEBUG, "[socket] writeToOutput detected input peer is closed while having data remaining, closing (fd=", _fd, ")");
 				close();
@@ -128,10 +131,8 @@ namespace vsockio
 			else if (bytesRead == 0)
 			{
 				// Source closed
-				// Mark input as closed, but not close the whole socket as this can close the peer
-				// before it gets the chance to consume/send all the queued input
 
-				Logger::instance->Log(Logger::DEBUG, "[socket] read returns 0 (fd=", _fd, ")");
+				Logger::instance->Log(Logger::DEBUG, "[socket] read returns 0, closing input (fd=", _fd, ")");
 				closeInput();
 				break;
 			}
@@ -145,10 +146,8 @@ namespace vsockio
 			else
 			{
 				// Error
-				// Do not close the whole socket as this would also close the peer without giving it chance
-				// to consume/send all the data queued so far
 
-				Logger::instance->Log(Logger::WARNING, "[socket] error on read, closing (fd=", _fd, "): ", strerror(err));
+				Logger::instance->Log(Logger::WARNING, "[socket] error on read, closing input (fd=", _fd, "): ", strerror(err));
 				closeInput();
 				break;
 			}
@@ -194,11 +193,6 @@ namespace vsockio
 	void Socket::closeInput()
 	{
 		_inputClosed = true;
-
-		// There may be a termination buffer queued by the peer. Poller may not be able to detect that and mark
-		// the socket as ready for write in a timely fashion. Force process the queue now.
-		_outputReady = true;
-		writeToOutput();
 	}
 
 	void Socket::close()
