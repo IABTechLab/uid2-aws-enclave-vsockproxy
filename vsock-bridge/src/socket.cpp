@@ -21,12 +21,6 @@ namespace vsockio
 		{
 			Logger::instance->Log(Logger::DEBUG, "[socket] readToInput detected output peer closed, closing input (fd=", _fd, ")");
 			closeInput();
-
-			// There may be a termination buffer queued by the peer. Poller may not be able to detect that and mark
-			// the socket as ready for write in a timely fashion. Force process the queue now.
-			_outputReady = true;
-			writeToOutput();
-
 			return false;
 		}
 
