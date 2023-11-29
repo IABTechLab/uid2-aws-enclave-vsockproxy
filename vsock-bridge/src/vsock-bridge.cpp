@@ -190,7 +190,7 @@ int main(int argc, char* argv[])
             {
                 quit_bad_args("invalid log level, must be 0, 1, 2, 3 or 4", false);
             }
-            if (min_log_level < 0 && min_log_level > 4)
+            if (min_log_level < 0 || min_log_level > 4)
             {
                 quit_bad_args("invalid log level, must be 0, 1, 2, 3 or 4", false);
             }
@@ -210,7 +210,7 @@ int main(int argc, char* argv[])
             {
                 quit_bad_args("invalid io thread count, must be number > 0", false);
             }
-            if (min_log_level < 0 && min_log_level > 4)
+            if (num_iothreads <= 0)
             {
                 quit_bad_args("invalid io thread count, must be number > 0", false);
             }

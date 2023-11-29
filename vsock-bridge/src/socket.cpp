@@ -103,12 +103,10 @@ namespace vsockio
 	std::unique_ptr<Buffer> Socket::read()
 	{
 		std::unique_ptr<Buffer> buffer{ BufferManager::getBuffer() };
-		int bytesRead;
-		int totalBytes = 0;
 
 		while (true)
 		{
-			bytesRead = _impl.read(_fd, buffer->tail(), buffer->remainingCapacity());
+			const int bytesRead = _impl.read(_fd, buffer->tail(), buffer->remainingCapacity());
 			int err = 0;
 			if (bytesRead > 0)
 			{
@@ -152,10 +150,9 @@ namespace vsockio
 
 	void Socket::send(Buffer& buffer)
 	{
-		int bytesWritten;
 		while (!buffer.consumed())
 		{
-			bytesWritten = _impl.write(_fd, buffer.head(), buffer.headLimit());
+			const int bytesWritten = _impl.write(_fd, buffer.head(), buffer.headLimit());
 
 			int err = 0;
 			if (bytesWritten > 0)

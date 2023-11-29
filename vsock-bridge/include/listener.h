@@ -184,7 +184,6 @@ namespace vsockio
 
             if (!IOControl::setNonBlocking(fd))
 			{
-				const int err = errno;
 				Logger::instance->Log(Logger::ERROR, "failed to set non-blocking mode (fd=", fd, ")");
 				return nullptr;
 			}

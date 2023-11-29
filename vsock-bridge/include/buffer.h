@@ -17,7 +17,7 @@ namespace vsockio
 	struct MemoryBlock
 	{
 		MemoryBlock(int size, class MemoryArena* region)
-			: _startPtr(new uint8_t[size]), _region(region) {}
+			: _startPtr(std::make_unique<uint8_t[]>(size)), _region(region) {}
 
 		uint8_t* offset(int x) const
 		{

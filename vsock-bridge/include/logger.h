@@ -26,9 +26,9 @@ struct Logger {
 	};
 
 	int _minLevel;
-	static Logger *instance;
+	static Logger* instance;
 	std::mutex _lock;
-	LoggingStream *_streamProvider;
+	LoggingStream* _streamProvider;
 
 	Logger() : _streamProvider(nullptr), _minLevel(DEBUG) {}
 
