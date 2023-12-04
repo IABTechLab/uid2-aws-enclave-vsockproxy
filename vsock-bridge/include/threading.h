@@ -1,12 +1,13 @@
 #pragma once
 
+#include <condition_variable>
+#include <functional>
 #include <iostream>
+#include <list>
+#include <memory>
 #include <mutex>
 #include <thread>
-#include <functional>
-#include <condition_variable>
 #include <vector>
-#include <list>
 
 namespace vsockio
 {
@@ -24,8 +25,8 @@ namespace vsockio
 		{
 			{
 				std::lock_guard<std::mutex> lk(_queueLock);
-				_list.push_back(value);
-				_count++;
+				_list.push_back(std::move(value));
+				++_count;
 			}
 			_signal.notify_one();
 		}
@@ -40,7 +41,7 @@ namespace vsockio
 			
 			T p = _list.front();
 			_list.pop_front();
-			_count--;
+			--_count;
 
 			lk.unlock();
 			return p;
@@ -53,25 +54,31 @@ namespace vsockio
 
 		bool empty() const
 		{
-			return _list.empty();
+			return _count <= 0;
 		}
 	};
 
 	struct WorkerThread
 	{
 		std::function<void()> _initCallback;
-		BlockingQueue<std::function<void()>>* _taskQueue;
-		bool _retired;
-		std::thread* t;
+		BlockingQueue<std::function<void()>> _taskQueue;
+		bool _retired = false;
+		uint64_t _eventsProcessed = 0;
+		std::thread t;
 
-		uint64_t _eventsProcessed;
 		uint64_t eventsProcessed() const { return _eventsProcessed; }
 
 		WorkerThread(std::function<void()> initCallback) 
-			: _initCallback(initCallback), _taskQueue(new BlockingQueue<std::function<void()>>), _retired(false)
+			: _initCallback(initCallback), t([this] { run(); })
 		{
-			_eventsProcessed = 0;
-			t = new std::thread(&WorkerThread::run, this);
+		}
+
+		~WorkerThread()
+		{
+			if (t.joinable())
+			{
+				t.join();
+			}
 		}
 
 		void run()
@@ -80,7 +87,7 @@ namespace vsockio
 
 			while (!_retired)
 			{
-				auto action = _taskQueue->dequeue();
+				auto action = _taskQueue.dequeue();
 				action();
 				_eventsProcessed++;
 			}
@@ -89,18 +96,18 @@ namespace vsockio
 		void stop()
 		{
 			_retired = true;
-			_taskQueue->enqueue([](){});
+			_taskQueue.enqueue([](){});
 		}
 
-		BlockingQueue<std::function<void()>>* getQueue() const
+		BlockingQueue<std::function<void()>>* getQueue()
 		{
-			return _taskQueue;
+			return &_taskQueue;
 		}
 	};
 
 	struct ThreadPool
 	{
-		static std::vector<WorkerThread*> threads;
+		static std::vector<std::unique_ptr<WorkerThread>> threads;
 		static BlockingQueue<std::function<void()>>* getTaskQueue(int taskId)
 		{
 			return threads[taskId % ThreadPool::threads.size()]->getQueue();

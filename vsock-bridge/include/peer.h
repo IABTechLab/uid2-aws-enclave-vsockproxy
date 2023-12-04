@@ -1,12 +1,14 @@
 #pragma once
 
+#include "buffer.h"
+
 #include <atomic>
+#include <cassert>
 #include <list>
 #include <memory>
-#include <linux/socket.h>
 #include <vector>
 
-#include <buffer.h>
+#include <linux/socket.h>
 
 namespace vsockio
 {
@@ -17,7 +19,7 @@ namespace vsockio
 
 		std::list<TPtr> _list;
 
-		int _count;
+		ssize_t _count;
 
 		UniquePtrQueue() : _count(0) {}
 
@@ -31,7 +33,7 @@ namespace vsockio
 			return _list.front();
 		}
 
-		void enqueue(TPtr& value)
+		void enqueue(TPtr&& value)
 		{
 			_count++;
 			_list.push_back(std::move(value));
@@ -52,84 +54,74 @@ namespace vsockio
 	};
 
 	template <typename TBuf>
-	struct Peer
+	class Peer
 	{
-		Peer(int inputState, int outputState) 
-			: _inputReady(inputState), _outputReady(outputState)
-			, _inputClosed(false), _outputClosed(false)
-			, _queueFull(false), _peer(nullptr), _ioEventCount(0) {}
+	public:
+		Peer() = default;
+
+		Peer(const Peer&) = delete;
+		Peer& operator=(const Peer&) = delete;
+
+		virtual ~Peer() {}
 
 		void onInputReady()
 		{
+			assert(_peer != nullptr);
+
 			_inputReady = true;
-			bool continuation = false;
-			do
-			{
-				readFromInput(continuation);
-				if (continuation)
-				{
-					_peer->writeToOutput(continuation);
-				}
-			} while (continuation);
-			_ioEventCount--;
+			while (readFromInput() && _peer->writeToOutput())
+				;
+			--_ioEventCount;
 		}
 
 		void onOutputReady()
 		{
+			assert(_peer != nullptr);
+
 			_outputReady = true;
-			bool continuation = false;
-			do
-			{
-				writeToOutput(continuation);
-				if (continuation)
-				{
-					_peer->readFromInput(continuation);
-				}
-			} while (continuation);
-			_ioEventCount--;
+			while (writeToOutput() && _peer->readFromInput())
+				;
+			--_ioEventCount;
 		}
 
-		void onError()
+		inline void setPeer(Peer* p)
 		{
-			shutdown();
-			_ioEventCount--;
+			_peer = p;
 		}
 
-		virtual void shutdown() = 0;
+		inline void onIoEvent() { ++_ioEventCount; }
 
-		virtual void onPeerShutdown() = 0;
+		inline int ioEventCount() const { return _ioEventCount.load(); }
 
-		virtual void readFromInput(bool& continuation) = 0;
+		virtual void close() = 0;
 
-		virtual void writeToOutput(bool& continuation) = 0;
-
-		virtual void queue(TBuf& buffer) = 0;
+		bool closed() const { return _inputClosed && _outputClosed; }
 
 		bool inputClosed() const { return _inputClosed; }
 
 		bool outputClosed() const { return _outputClosed; }
 
-		bool closed() const { return _inputClosed && _outputClosed; }
+		virtual void onPeerClosed() = 0;
+
+		virtual void queue(TBuf&& buffer) = 0;
 
 		bool queueFull() const { return _queueFull; }
-
-		virtual ~Peer() {}
-
-		inline void setPeer(Peer* p) { _peer = p; }
-
-		inline void incrementEventCount() { _ioEventCount++; }
-
-		inline int ioEventCount() const { return _ioEventCount.load(); }
+		virtual bool queueEmpty() const = 0;
 
 	protected:
-		bool _inputReady;
-		bool _outputReady;
-		int _inputClosed;
-		int _outputClosed;
-		bool _queueFull;
-		Peer<TBuf>* _peer;
+		virtual bool readFromInput() = 0;
+
+		virtual bool writeToOutput() = 0;
+
+	protected:
+		bool _inputReady = false;
+		bool _outputReady = false;
+		bool _inputClosed = false;
+		bool _outputClosed = false;
+		bool _queueFull = false;
+		Peer<TBuf>* _peer = nullptr;
 
 	private:
-		std::atomic_int _ioEventCount;
+		std::atomic_int _ioEventCount{0};
 	};
 }

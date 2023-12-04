@@ -3,10 +3,11 @@
 
 #include <cstdlib>
 #include <functional>
+#include <iostream>
+#include <memory>
+#include <thread>
 #include <unordered_set>
 #include <vector>
-#include <iostream>
-#include <thread>
 
 #include <socket.h>
 #include <threading.h>
@@ -17,7 +18,7 @@
 
 using namespace vsockio;
 
-std::vector<WorkerThread*> ThreadPool::threads;
+std::vector<std::unique_ptr<WorkerThread>> ThreadPool::threads;
 thread_local MemoryArena* BufferManager::arena = new MemoryArena();
 
 TEST_CASE("Queue works", "[queue]") 
@@ -34,7 +35,7 @@ TEST_CASE("Queue works", "[queue]")
 
 	for (int i = 0; i < 5; i++)
 	{
-		q.enqueue(pNumbers[i]);
+		q.enqueue(std::move(pNumbers[i]));
 	}
 
 	for (int i = 0; i < 5; i++)
@@ -63,11 +64,11 @@ TEST_CASE("Buffer works", "[buffer]")
 	}
 
 	ssize_t c = b->_pageSize / 2;
-	b->setCursor(c);
-	REQUIRE(b->cursor() == c);
-
-	b->setSize(c);
+	b->produce(c);
 	REQUIRE(b->size() == c);
+
+	b->consume(c);
+	REQUIRE(b->cursor() == c);
 
 	REQUIRE(b->tryNewPage());
 	REQUIRE(b->capacity() == 2 * b->_pageSize);
@@ -146,7 +147,7 @@ TEST_CASE("Slow write", "[peer]")
 		return 16;
 	};
 
-	impl.close = [](int _) {return 0; };
+	impl.close = [](int _) { return 0; };
 	
 	testContext.reset();
 
@@ -155,8 +156,8 @@ TEST_CASE("Slow write", "[peer]")
 
 	int fd_a = mock_sock_default(AF_INET, SOCK_STREAM, 0);
 	int fd_b = mock_sock_default(AF_INET, SOCK_STREAM, 0);
-	Socket a(fd_a, &impl);
-	Socket b(fd_b, &impl);
+	Socket a(fd_a, impl);
+	Socket b(fd_b, impl);
 
 	a.setPeer(&b);
 	b.setPeer(&a);
@@ -193,8 +194,8 @@ TEST_CASE("Fast close", "[peer]")
 
 	int fd_a = mock_sock_default(AF_INET, SOCK_STREAM, 0);
 	int fd_b = mock_sock_default(AF_INET, SOCK_STREAM, 0);
-	Socket a(fd_a, &impl);
-	Socket b(fd_b, &impl);
+	Socket a(fd_a, impl);
+	Socket b(fd_b, impl);
 
 	a.setPeer(&b);
 	b.setPeer(&a);
@@ -235,8 +236,8 @@ TEST_CASE("Correct content", "[peer]")
 
 	int fd_a = mock_sock_default(AF_INET, SOCK_STREAM, 0);
 	int fd_b = mock_sock_default(AF_INET, SOCK_STREAM, 0);
-	Socket a(fd_a, &impl);
-	Socket b(fd_b, &impl);
+	Socket a(fd_a, impl);
+	Socket b(fd_b, impl);
 
 	a.setPeer(&b);
 	b.setPeer(&a);
@@ -287,8 +288,8 @@ TEST_CASE("No early close", "[peer]")
 
 	int fd_a = mock_sock_default(AF_INET, SOCK_STREAM, 0);
 	int fd_b = mock_sock_default(AF_INET, SOCK_STREAM, 0);
-	Socket a(fd_a, &impl);
-	Socket b(fd_b, &impl);
+	Socket a(fd_a, impl);
+	Socket b(fd_b, impl);
 
 	a.setPeer(&b);
 	b.setPeer(&a);
@@ -305,25 +306,24 @@ TEST_CASE("No early close", "[peer]")
 
 TEST_CASE("Threaded IO", "[threading]")
 {
-	WorkerThread* wt = new WorkerThread([](){});
-	std::thread t(&WorkerThread::run, wt);
+	WorkerThread wt([](){});
 
-	auto* q = wt->_taskQueue;
-	q->enqueue([]() {
-		std::cout << "threading test, block worker thread for 1 second" << std::endl;
+	auto& q = wt._taskQueue;
+	q.enqueue([]() {
+		std::cout << "threading test, block main thread for 1 second" << std::endl;
 	});
 
 	std::this_thread::sleep_for(std::chrono::seconds(1));
 
-	q->enqueue([wt]() {
+	q.enqueue([&wt]() {
 		std::cout << "retiring in 1 second..." << std::endl;
 		std::this_thread::sleep_for(std::chrono::seconds(1));
-		wt->stop();
+		wt.stop();
 		std::cout << "worker thread stopped." << std::endl;
 	});
 
 	std::cout << "main thread joined." << std::endl;
-	t.join();
+	wt.t.join();
 	std::cout << "main thread exiting." << std::endl;
 }
 
@@ -373,9 +373,11 @@ TEST_CASE("Queue tasks in channel", "[channel]")
 
 	int fd_a = mock_sock_default(AF_INET, SOCK_STREAM, 0);
 	int fd_b = mock_sock_default(AF_INET, SOCK_STREAM, 0);
-	Socket* a = new Socket(fd_a, &impl);
-	Socket* b = new Socket(fd_b, &impl);
-	DirectChannel c(1, a, b, &tQueue);
+	auto ap = std::make_unique<Socket>(fd_a, impl);
+	auto bp = std::make_unique<Socket>(fd_b, impl);
+	auto* a = ap.get();
+	auto* b = bp.get();
+	DirectChannel c(1, std::move(ap), std::move(bp), &tQueue);
 	c.handle(b->fd(), IOEvent::InputReady);
 	c.handle(a->fd(), IOEvent::OutputReady);
 
@@ -400,44 +402,52 @@ TEST_CASE("Queue tasks in channel", "[channel]")
 	REQUIRE(dest == source);
 }
 
-
-TEST_CASE("Id LinkedList behavior", "[processor]")
+TEST_CASE("ChannelNodePool behavior", "[processor]")
 {
-	ChannelIdList ls;
+	SocketImpl impl(
+			[](int fd, void* buf, int len) { return 0; },
+			[](int fd, void* buf, int len) { return 0; },
+			[](int fd) { return 0; } );
 
-	// [head][0][1][2]
+	ChannelNodePool pool;
 
-	auto* id0 = ls.getNode();
-	auto* id1 = ls.getNode();
-	auto* id2 = ls.getNode();
+	auto node0 = pool.getFreeNode();
+	auto node1 = pool.getFreeNode();
+	auto node2 = pool.getFreeNode();
 
-	REQUIRE(id0->id == 0);
-	REQUIRE(id1->id == 1);
-	REQUIRE(id2->id == 2);
-	REQUIRE(id0->inUse);
-	REQUIRE(id1->inUse);
-	REQUIRE(id2->inUse);
-	
-	ls.putNode(id1);
-	ls.putNode(id0);
-	auto* id1_ = ls.getNode();
-	REQUIRE(id1_->id == 1);
-	REQUIRE(id1_->inUse);
+	REQUIRE(node0->_id == 0);
+	REQUIRE(node1->_id == 1);
+	REQUIRE(node2->_id == 2);
+	REQUIRE(!node0->inUse());
+	REQUIRE(!node1->inUse());
+	REQUIRE(!node2->inUse());
 
-	auto* id0_ = ls.getNode();
-	REQUIRE(id0_->id == 0);
-	REQUIRE(id0_->inUse);
+	auto client = std::make_unique<Socket>(1, impl);
+	auto server = std::make_unique<Socket>(2, impl);
+	BlockingQueue<std::function<void()>> taskQueue;
+	node1->_channel = std::make_unique<DirectChannel>(123, std::move(client), std::move(server), &taskQueue);
+	REQUIRE(node1->inUse());
 
-	auto* id3_ = ls.getNode();
-	REQUIRE(id3_->id == 3);
-	REQUIRE(id3_->inUse);
+	node0.reset();
+	node1.reset();
+	auto node1_ = pool.getFreeNode();
+	REQUIRE(node1_->_id == 1);
+	REQUIRE(!node1_->inUse());
+
+	auto node0_ = pool.getFreeNode();
+	REQUIRE(node0_->_id == 0);
+	REQUIRE(!node0_->inUse());
+
+	auto node3_ = pool.getFreeNode();
+	REQUIRE(node3_->_id == 3);
+	REQUIRE(!node3_->inUse());
 }
 
 void createWorkerThreads(int numThreads)
 {
 	for (int i = 0; i < numThreads; i++)
 	{
-		ThreadPool::threads.push_back(new WorkerThread([]() { BufferManager::arena->init(1024, 20); }));
+		ThreadPool::threads.push_back(std::make_unique<WorkerThread>([]() { BufferManager::arena->init(1024, 20); }));
 	}
 }
 
@@ -446,7 +456,6 @@ void terminateWorkerThreads()
 	for (int i = 0; i < ThreadPool::threads.size(); i++)
 	{
 		ThreadPool::threads[i]->stop();
-		ThreadPool::threads[i]->t->join();
 	}
 	ThreadPool::threads.clear();
 }
@@ -480,19 +489,18 @@ TEST_CASE("Dispatcher", "[dispatcher]")
 
 	MockPoller poller(20);
 	Dispatcher ex(&poller);
-	auto* channel = ex.prepareChannel();
-	Socket* client = new Socket(1, &impl);
-	Socket* server = new Socket(2, &impl);
-	ex.makeChannel(channel, client, server, ThreadPool::getTaskQueue(channel->id));
+	auto client = std::make_unique<Socket>(1, impl);
+	auto server = std::make_unique<Socket>(2, impl);
+	auto* channel = ex.addChannel(std::move(client), std::move(server));
 
 	REQUIRE(poller._fdMap.find(1) != poller._fdMap.end());
 	REQUIRE(poller._fdMap.find(2) != poller._fdMap.end());
 	REQUIRE(poller._fdMap[1].listeningEvents == (uint32_t)(IOEvent::InputReady | IOEvent::OutputReady));
 	REQUIRE(poller._fdMap[2].listeningEvents == (uint32_t)(IOEvent::InputReady | IOEvent::OutputReady));
-	REQUIRE(((ChannelHandle*)poller._fdMap[1].handler)->channelId == channel->id);
-	REQUIRE(((ChannelHandle*)poller._fdMap[2].handler)->channelId == channel->id);
+	REQUIRE(((ChannelHandle*)poller._fdMap[1].handler)->channelId == channel->_id);
+	REQUIRE(((ChannelHandle*)poller._fdMap[2].handler)->channelId == channel->_id);
 
-	auto* queue = ThreadPool::getTaskQueue(channel->id);
+	auto* queue = ThreadPool::getTaskQueue(channel->_id);
 	REQUIRE(queue->empty());
 	poller.setInputReady(1, true);
 	poller.setOutputReady(2, true);
@@ -505,9 +513,16 @@ TEST_CASE("Dispatcher", "[dispatcher]")
 		std::this_thread::sleep_for(std::chrono::milliseconds(10));
 	}
 
-	poller.setOutputReady(2, true);
+	REQUIRE(channel->inUse() == true);
+	REQUIRE(channel->_channel->canBeTerminated());
+
 	ex.taskloop();
-	REQUIRE(channel->inUse == false);
+	for (; retry < 100 && channel->inUse(); retry++)
+	{
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
+	}
+
+	REQUIRE(channel->inUse() == false);
 
 	for (int i = 0; i < ThreadPool::threads.size(); i++)
 	{

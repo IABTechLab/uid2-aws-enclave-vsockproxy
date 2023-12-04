@@ -1,141 +1,149 @@
 #pragma once
 
-#include <vector>
+#include "channel.h"
+#include "logger.h"
+#include "poller.h"
+
+#include <forward_list>
 #include <functional>
-#include <poller.h>
 #include <unordered_map>
-#include <channel.h>
-#include <logger.h>
+#include <vector>
 
 namespace vsockio
 {
-	struct ChannelIdListNode
+	struct ChannelNode
 	{
-		int id;
-		bool inUse;
-		DirectChannel* channel;
-		ChannelIdListNode* next;
-		ChannelIdListNode* prev;
+		int _id;
+		std::unique_ptr<DirectChannel> _channel;
 
-		ChannelIdListNode(int id) 
-			: id(id), inUse(false), channel(nullptr), next(nullptr), prev(nullptr) {}
+		explicit ChannelNode(int id) : _id(id) {}
+
+		void reset()
+		{
+			_channel.reset();
+		}
+
+		bool inUse() const
+		{
+			return !!_channel;
+		}
 	};
 
-	struct ChannelIdList
+	class ChannelNodePool
 	{
-		// [head][free(p)][free]...[free][tail]
+	public:
+		ChannelNodePool() = default;
 
-		ChannelIdListNode* head;
-		ChannelIdListNode* p;
-		ChannelIdListNode* tail;
-		uint32_t _nextId;
+		ChannelNodePool(const ChannelNodePool&) = delete;
+		ChannelNodePool& operator=(const ChannelNodePool&) = delete;
 
-		ChannelIdList() : head(nullptr), tail(nullptr), _nextId(0)
+		~ChannelNodePool()
 		{
-			head = new ChannelIdListNode(0);
-			tail = new ChannelIdListNode(0);
-			head->prev = nullptr;
-			head->next = tail;
-			tail->prev = head;
-			tail->next = nullptr;
-			p = tail;
-		}
-
-		ChannelIdListNode* getNode()
-		{
-			if (p == head || p == tail)
+			for (auto* node : _freeList)
 			{
-				// no free node because we do not have any or we used all up
-				putNode(new ChannelIdListNode(_nextId++));
-			}
-
-			auto* prev = p->prev;
-			auto* next = p->next;
-			next->prev = prev;
-			prev->next = next;
-			
-			auto* ret = p;
-			p = next;
-			ret->inUse = true;
-			return ret;
-		}
-
-		void putNode(ChannelIdListNode* node)
-		{
-			node->inUse = false;
-			node->channel = nullptr;
-			node->next = tail;
-			node->prev = tail->prev;
-			tail->prev->next = node;
-			tail->prev = node;
-
-			if (p == tail)
-			{
-				p = node;
+				delete node;
 			}
 		}
 
-		~ChannelIdList()
+		struct ChannelNodeDeleter
 		{
-			auto* ptr = head;
-			while (ptr != nullptr)
+			ChannelNodePool* _pool;
+
+			void operator()(ChannelNode* node)
 			{
-				auto* x = ptr;
-				ptr = ptr->next;
-				delete x;
+				_pool->releaseNode(node);
 			}
+		};
+
+		using ChannelNodePtr = std::unique_ptr<ChannelNode, ChannelNodeDeleter>;
+
+		ChannelNodePtr getFreeNode() {
+			const ChannelNodeDeleter deleter{this};
+
+			if (_freeList.empty())
+			{
+				return ChannelNodePtr(new ChannelNode(_nextNodeId++), deleter);
+			}
+
+			auto* node = _freeList.front();
+			_freeList.pop_front();
+			return ChannelNodePtr(node, deleter);
 		}
+
+		void releaseNode(ChannelNode* node)
+		{
+			if (node == nullptr) return;
+			node->reset();
+			_freeList.push_front(node);
+		}
+
+	private:
+		int _nextNodeId = 0;
+		std::forward_list<ChannelNode*> _freeList;
 	};
 
 	struct Dispatcher
 	{
 		Poller* _poller;
-		VsbEvent* _events;
-		std::unordered_map<uint64_t, ChannelIdListNode*> _channels;
-		ChannelIdList _idman;
+		std::vector<VsbEvent> _events;
+		ChannelNodePool _idman;
+		std::unordered_map<uint64_t, ChannelNodePool::ChannelNodePtr> _channels;
 		BlockingQueue<std::function<void()>> _tasksToRun;
 
 		int maxNewConnectionPerLoop = 20;
 		int scanAndCleanInterval = 20;
-		uint64_t _lastScanAndCleanGen;
-		uint64_t _currentGen;
+		int _currentGen = 0;
 
 		int _name;
 
 		Dispatcher(Poller* poller) : Dispatcher(0, poller) {}
 
-		Dispatcher(int name, Poller* poller) : _name(name), _poller(poller), _events(new VsbEvent[poller->maxEventsPerPoll()]) {}
+		Dispatcher(int name, Poller* poller) : _name(name), _poller(poller), _events(poller->maxEventsPerPoll()) {}
+
+		int name() const
+		{
+			return _name;
+		}
+
+		void postAddChannel(std::unique_ptr<Socket>&& ap, std::unique_ptr<Socket>(bp))
+		{
+			// Dispatcher::taskloop manages the channel map attached to the dispatcher
+			// connectToPeer modifies the map so we request taskloop thread to run it
+			runOnTaskLoop([this, ap = std::move(ap), bp = std::move(bp)]() mutable { addChannel(std::move(ap), std::move(bp)); });
+		}
 		
-		ChannelIdListNode* prepareChannel()
+		ChannelNode* addChannel(std::unique_ptr<Socket> ap, std::unique_ptr<Socket> bp)
 		{
-			return _idman.getNode();
+			ChannelNodePool::ChannelNodePtr node = _idman.getFreeNode();
+			BlockingQueue<DirectChannel::TAction>* taskQueue = ThreadPool::getTaskQueue(node->_id);
+
+			Logger::instance->Log(Logger::DEBUG, "creating channel id=", node->_id, ", a.fd=", ap->fd(), ", b.fd=", bp->fd());
+			node->_channel = std::make_unique<DirectChannel>(node->_id, std::move(ap), std::move(bp), taskQueue);
+
+			const auto& c = *node->_channel;
+			c._a->setPoller(_poller);
+			c._b->setPoller(_poller);
+			if (!_poller->add(c._a->fd(), (void*)&c._ha, IOEvent::InputReady | IOEvent::OutputReady) ||
+				!_poller->add(c._b->fd(), (void*)&c._hb, IOEvent::InputReady | IOEvent::OutputReady))
+			{
+				return nullptr;
+			}
+
+			auto* const n = node.get();
+			_channels[n->_id] = std::move(node);
+			return n;
 		}
 
-		void makeChannel(ChannelIdListNode* node, Socket* a, Socket* b, BlockingQueue<DirectChannel::TAction>* _taskQueue)
+		template <typename T>
+		void runOnTaskLoop(T&& action)
 		{
-			Logger::instance->Log(Logger::DEBUG, "creating channel id=", node->id, ", a.fd=", a->fd(), ", b.fd=", b->fd());
-			auto* c = new DirectChannel(node->id, a, b, _taskQueue);
-			_channels[node->id] = node;
-			node->channel = c;
-			_poller->add(a->fd(), (void*)&c->_ha, IOEvent::InputReady | IOEvent::OutputReady);
-			_poller->add(b->fd(), (void*)&c->_hb, IOEvent::InputReady | IOEvent::OutputReady);
-		}
-
-		void destroyChannel(ChannelIdListNode* node)
-		{
-			Logger::instance->Log(Logger::DEBUG, "destroying channel id=", node->channel->_id);
-			_idman.putNode(node);
-			delete node->channel;
-		}
-
-		void runOnTaskLoop(std::function<void()> action)
-		{
-			_tasksToRun.enqueue(action);
+			auto wrapper = std::make_shared<T>(std::forward<T>(action));
+			_tasksToRun.enqueue([wrapper] { (*wrapper)(); });
 		}
 
 		void run()
 		{
-			Logger::instance->Log(Logger::DEBUG, "dispatcher started");
+			Logger::instance->Log(Logger::DEBUG, "dispatcher ", name(), " started");
 			for (;;)
 			{
 				taskloop();
@@ -144,70 +152,83 @@ namespace vsockio
 
 		void taskloop()
 		{
-			// Phase 1. poll IO events
-			int eventCount = _poller->poll(_events, getTimeout());
-			if (eventCount == -1)
-			{
+			// handle events on existing channels
+			poll();
+
+			// complete new channels
+			processQueuedTasks();
+
+			// collect terminated channels
+			cleanup();
+		}
+
+		void poll()
+		{
+			const int eventCount = _poller->poll(_events.data(), getTimeout());
+			if (eventCount == -1) {
 				Logger::instance->Log(Logger::CRITICAL, "Poller returns error.");
 				return;
 			}
 
-			// Phase 2. find corresponding handler and process events
-			for (int i = 0; i < eventCount; i++)
-			{
-				auto* handle = static_cast<ChannelHandle*>(_events[i].data);
+			for (int i = 0; i < eventCount; i++) {
+				auto *handle = static_cast<ChannelHandle *>(_events[i].data);
 				auto it = _channels.find(handle->channelId);
-				if (it == _channels.end() || !it->second->inUse || it->second->channel == nullptr)
-				{
+				if (it == _channels.end() || !it->second->inUse()) {
 					Logger::instance->Log(Logger::WARNING, "Channel ID ", handle->channelId, " does not exist.");
 					continue;
 				}
-				auto* channel = it->second->channel;
-				channel->handle(handle->fd, _events[i].ioFlags);
+				auto &channel = *it->second->_channel;
+				channel.handle(handle->fd, _events[i].ioFlags);
 			}
+		}
 
-			// Phase 3. complete newcoming connections
-			for (int i = 0; i < maxNewConnectionPerLoop; i++)
-			{
+		void processQueuedTasks()
+		{
+			for (int i = 0; i < maxNewConnectionPerLoop; i++) {
 				// must check task count first, since we don't wanna block here
-				if (_tasksToRun.count() > 0)
-				{
+				if (!_tasksToRun.empty()) {
 					auto action = _tasksToRun.dequeue();
 					action();
-				}
-				else
-				{
+				} else {
 					break;
 				}
 			}
+		}
 
-			// Phase 4. clean & remove terminated channels
-			if (_currentGen - _lastScanAndCleanGen == scanAndCleanInterval)
+		void cleanup()
+		{
+			if (_currentGen >= scanAndCleanInterval)
 			{
-				std::vector<int> keysToRemove;
-				for (auto it = _channels.begin(); it != _channels.end(); it++)
+				for (auto it = _channels.begin(); it != _channels.end(); )
 				{
-					auto* ch = it->second->channel;
-					if (ch != nullptr && ch->canBeTerminated())
+					auto* node = it->second.get();
+					if (!node->inUse() || node->_channel->canBeTerminated())
 					{
-						keysToRemove.push_back(it->first);
-						destroyChannel(it->second);
+						Logger::instance->Log(Logger::DEBUG, "destroying channel id=", it->first);
+
+						// any resources allocated on channel thread must be freed there
+						if (node->inUse())
+						{
+							node->_channel.release()->terminate();
+						}
+
+						it = _channels.erase(it);
+					}
+					else
+					{
+						++it;
 					}
 				}
-				for (int id : keysToRemove)
-				{
-					_channels.erase(id);
-				}
-				_lastScanAndCleanGen = _currentGen;
+				_currentGen = 0;
 			}
 			_currentGen++;
 		}
 
 		int getTimeout() const
 		{
-			bool hasPendingTask =
-				(_currentGen - _lastScanAndCleanGen == scanAndCleanInterval) ||
-				(_tasksToRun.count() > 0);
+			const bool hasPendingTask =
+				(_currentGen >= scanAndCleanInterval) ||
+				(!_tasksToRun.empty());
 
 			return hasPendingTask ? 0 : 16;
 		}

@@ -56,12 +56,12 @@ void start_services(std::vector<service_description>& services, int numIOThreads
 
     for (int i = 0; i < numWorkers; i++)
     {
-        WorkerThread* t = new WorkerThread(
+        auto t = std::make_unique<WorkerThread>(
             /*init:*/ []() { 
                 BufferManager::arena->init(512, 2000); 
             }
         );
-        ThreadPool::threads.push_back(t);
+        ThreadPool::threads.push_back(std::move(t));
     }
 
     for (auto& sd : services)
@@ -69,7 +69,7 @@ void start_services(std::vector<service_description>& services, int numIOThreads
         std::vector<Dispatcher*>* dispatchers = new std::vector<Dispatcher*>();
         for (int i = 0; i < 1; i++)
         {
-            Dispatcher* d = new Dispatcher(i + 1, new EpollPoller(VSB_MAX_POLL_EVENTS));
+            Dispatcher* d = new Dispatcher(i, new EpollPoller(VSB_MAX_POLL_EVENTS));
             dispatchers->push_back(d);
         }
 
@@ -190,7 +190,7 @@ int main(int argc, char* argv[])
             {
                 quit_bad_args("invalid log level, must be 0, 1, 2, 3 or 4", false);
             }
-            if (min_log_level < 0 && min_log_level > 4)
+            if (min_log_level < 0 || min_log_level > 4)
             {
                 quit_bad_args("invalid log level, must be 0, 1, 2, 3 or 4", false);
             }
@@ -210,7 +210,7 @@ int main(int argc, char* argv[])
             {
                 quit_bad_args("invalid io thread count, must be number > 0", false);
             }
-            if (min_log_level < 0 && min_log_level > 4)
+            if (num_iothreads <= 0)
             {
                 quit_bad_args("invalid io thread count, must be number > 0", false);
             }

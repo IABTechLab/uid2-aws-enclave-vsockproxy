@@ -1,8 +1,12 @@
 #pragma once
 
-#include <sys/socket.h>
-#include <linux/vm_sockets.h>
 #include <string>
+
+#include <arpa/inet.h>
+#include <linux/vm_sockets.h>
+#include <netinet/in.h>
+#include <string.h>
+#include <sys/socket.h>
 
 namespace vsockio
 {
