@@ -14,7 +14,7 @@ namespace vsockio
 
     void IOThread::run()
     {
-        BufferManager::arena->init(512, 2000);
+        BufferManager::arena->init(1024, 2000);
 
         while (!_terminateFlag.load(std::memory_order_relaxed))
         {
@@ -75,7 +75,7 @@ namespace vsockio
 
     int IOThread::getPollTimeout() const
     {
-        return _readyChannels.empty() ? 10 : 0;
+        return _readyChannels.empty() ? 1 : 0;
     }
 
     void IOThread::performIO()
