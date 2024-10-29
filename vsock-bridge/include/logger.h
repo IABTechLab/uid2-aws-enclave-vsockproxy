@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <ctime>
 #include <fstream>
 #include <iomanip>
@@ -54,52 +55,14 @@ struct Logger {
 		_streamProvider = streamProvider;
 	}
 
-	template <typename T0>
-	void Log(int level, const T0& m0)
+	template <typename... Ts>
+	void Log(int level, const Ts&... args)
 	{
 		if (level < _minLevel || _streamProvider == nullptr) return;
 		std::lock_guard<std::mutex> lk(_lock);
-		_streamProvider->startLog(level) << m0 << std::endl;
-	}
-
-	template <typename T0, typename T1>
-	void Log(int level, const T0& m0, const T1& m1)
-	{
-		if (level < _minLevel || _streamProvider == nullptr) return;
-		std::lock_guard<std::mutex> lk(_lock);
-		_streamProvider->startLog(level) << m0 << m1 << std::endl;
-	}
-
-	template <typename T0, typename T1, typename T2>
-	void Log(int level, const T0& m0, const T1& m1, const T2& m2)
-	{
-		if (level < _minLevel || _streamProvider == nullptr) return;
-		std::lock_guard<std::mutex> lk(_lock);
-		_streamProvider->startLog(level) << m0 << m1 << m2 << std::endl;
-	}
-
-	template <typename T0, typename T1, typename T2, typename T3>
-	void Log(int level, const T0& m0, const T1& m1, const T2& m2, const T3& m3)
-	{
-		if (level < _minLevel || _streamProvider == nullptr) return;
-		std::lock_guard<std::mutex> lk(_lock);
-		_streamProvider->startLog(level) << m0 << m1 << m2 << m3 << std::endl;
-	}
-
-	template <typename T0, typename T1, typename T2, typename T3, typename T4>
-	void Log(int level, const T0& m0, const T1& m1, const T2& m2, const T3& m3, const T4& m4)
-	{
-		if (level < _minLevel || _streamProvider == nullptr) return;
-		std::lock_guard<std::mutex> lk(_lock);
-		_streamProvider->startLog(level) << m0 << m1 << m2 << m3 << m4 << std::endl;
-	}
-
-	template <typename T0, typename T1, typename T2, typename T3, typename T4, typename T5>
-	void Log(int level, const T0& m0, const T1& m1, const T2& m2, const T3& m3, const T4& m4, const T5& m5)
-	{
-		if (level < _minLevel || _streamProvider == nullptr) return;
-		std::lock_guard<std::mutex> lk(_lock);
-		_streamProvider->startLog(level) << m0 << m1 << m2 << m3 << m4 << m5 << std::endl;
+		auto& s = _streamProvider->startLog(level);
+        (s << ... << args);
+        s << std::endl;
 	}
 };
 
@@ -180,3 +143,25 @@ struct RSyslogLogger : public LoggingStream
 	std::ostream _critical;
 	NullStream _nullStream;
 };
+
+struct PerfLogger
+{
+    const char* const _name;
+    const std::chrono::time_point<std::chrono::steady_clock> _start;
+
+    explicit PerfLogger(const char* name) : _name(name), _start(std::chrono::steady_clock::now()) {}
+    ~PerfLogger()
+    {
+        const auto end = std::chrono::steady_clock::now();
+        const std::chrono::duration<double> diff = end - _start;
+        Logger::instance->Log(Logger::DEBUG, "Latency ", _name, " ", diff.count(), "s");
+    }
+};
+
+#ifdef ENABLE_VSOCKIO_PERF
+#define VSOCKIO_COMBINE1(X,Y) X##Y
+#define VSOCKIO_COMBINE(X,Y) VSOCKIO_COMBINE1(X,Y)
+#define PERF_LOG(name) PerfLogger VSOCKIO_COMBINE(__perfLog, __LINE__){name}
+#else
+#define PERF_LOG(name) do {} while(0)
+#endif

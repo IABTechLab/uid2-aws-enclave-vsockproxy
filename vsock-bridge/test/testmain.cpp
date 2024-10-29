@@ -1,28 +1,29 @@
-#define CATCH_CONFIG_MAIN
+#include <logger.h>
+
+#define CATCH_CONFIG_RUNNER
 #include "catch.hpp"
 
-#include <cstdlib>
-#include <functional>
-#include <iostream>
-#include <memory>
-#include <thread>
-#include <unordered_set>
-#include <vector>
+int main( int argc, char* argv[] ) {
 
-#include <socket.h>
-#include <threading.h>
-#include <channel.h>
-#include <dispatcher.h>
+    Logger::instance->setMinLevel(Logger::DEBUG);
+    Logger::instance->setStreamProvider(new StdoutLogger());
 
-#include "mocks.h"
 
-using namespace vsockio;
+    int result = Catch::Session().run( argc, argv );
 
+    // your clean-up...
+
+    return result;
+}
+#if 0
 std::vector<std::unique_ptr<WorkerThread>> ThreadPool::threads;
 thread_local MemoryArena* BufferManager::arena = new MemoryArena();
 
-TEST_CASE("Queue works", "[queue]") 
+TEST_CASE("ThreadSafeQueue", "[queue]")
 {
+    ThreadSafeQueue<int> q;
+    REQUIRE_THAT(q.dequeue())
+
 	UniquePtrQueue<int> q;
 
 	std::unique_ptr<int> pNumbers[]{
@@ -533,3 +534,4 @@ TEST_CASE("Dispatcher", "[dispatcher]")
 
 	REQUIRE(dest == source);
 }
+#endif

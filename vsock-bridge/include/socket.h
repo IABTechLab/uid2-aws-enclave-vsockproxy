@@ -1,8 +1,9 @@
 #pragma once
 
-#include "peer.h"
+#include "buffer.h"
 #include "poller.h"
 
+#include <cassert>
 #include <functional>
 #include <memory>
 
@@ -22,13 +23,13 @@ namespace vsockio
 			std::function<int(int, void*, int)> readImpl,
 			std::function<int(int, void*, int)> writeImpl,
 			std::function<int(int)> closeImpl
-		) : 
+		) :
 			read(readImpl), 
 			write(writeImpl), 
 			close(closeImpl) {}
 	};
 
-	class Socket : public Peer<std::unique_ptr<Buffer>>
+	class Socket
 	{
 	public:
 		Socket(int fd, SocketImpl& impl);
@@ -38,37 +39,66 @@ namespace vsockio
 
 		~Socket();
 
+        void readInput()
+        {
+            assert(_peer != nullptr);
+            _canReadMore = readFromInput();
+        }
+
+        void writeOutput()
+        {
+            assert(_peer != nullptr);
+            _canWriteMore = writeToOutput();
+        }
+
+        inline void setPeer(Socket* p)
+        {
+            _peer = p;
+        }
+
 		inline int fd() const { return _fd; }
-
-		void close() override;
-
-		bool queueEmpty() const override { return _sendQueue.empty(); }
 
 		void setPoller(Poller* poller)
 		{
 			_poller = poller;
 		}
 
-	protected:
-		bool readFromInput() override;
+        bool connected() const { return _connected; }
+        void onConnected() { _connected = true; }
+        void checkConnected();
 
-		bool writeToOutput() override;
+        bool closed() const { return _inputClosed && _outputClosed; }
 
-		void onPeerClosed() override;
+        bool canReadWriteMore() const { return (_canReadMore || _canWriteMore) && !closed(); }
 
-		void queue(std::unique_ptr<Buffer>&& buffer) override;
+    private:
+		bool readFromInput();
+		bool writeToOutput();
 
-	private:
-		std::unique_ptr<Buffer> read();
+		void onPeerClosed();
 
-		void send(Buffer& buffer);
+		bool read(Buffer& buffer);
+		bool send(Buffer& buffer);
+        void close();
 
 		void closeInput();
 
-	private:
+        bool inputClosed() const { return _inputClosed; }
+        bool outputClosed() const { return _outputClosed; }
+        bool hasQueuedData() const { return !_buffer.consumed(); }
+
+        Buffer& buffer() { return _buffer; }
+
+    private:
 		SocketImpl& _impl;
-		UniquePtrQueue<Buffer> _sendQueue;
+        bool _canReadMore = false;
+        bool _canWriteMore = false;
+        bool _inputClosed = false;
+        bool _outputClosed = false;
+        Socket* _peer;
 		int _fd;
+        bool _connected = false;
 		Poller* _poller = nullptr;
+        Buffer _buffer;
 	};
 }

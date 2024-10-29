@@ -6,40 +6,35 @@
 
 namespace vsockproxy
 {
-	enum class service_type : uint8_t
+	enum class ServiceType : uint8_t
 	{
 		UNKNOWN = 0,
-		SOCKS_PROXY,
-		FILE,
 		DIRECT_PROXY,
 	};
 
-	enum class endpoint_scheme : uint8_t
+	enum class EndpointScheme : uint8_t
 	{
 		UNKNOWN = 0,
 		VSOCK,
 		TCP4,
 	};
 
-	struct endpoint
+	struct EndpointConfig
 	{
-		endpoint_scheme scheme;
-		std::string address;
-		uint16_t port;
+		EndpointScheme _scheme = EndpointScheme::UNKNOWN;
+		std::string _address;
+		uint16_t _port = 0;
 	};
 
-	struct service_description
+	struct ServiceDescription
 	{
-		std::string name;
-		service_type type;
-		endpoint listen_ep;
-		endpoint connect_ep;
-		std::vector<std::pair<std::string, std::string>> mapping;
+		std::string _name;
+		ServiceType _type = ServiceType::UNKNOWN;
+		EndpointConfig _listenEndpoint;
+		EndpointConfig _connectEndpoint;
 	};
 
-	uint16_t try_str2short(std::string s, uint16_t default_value);
+	std::vector<ServiceDescription> loadConfig(const std::string& filepath);
 
-	std::vector<service_description> load_config(std::string filepath);
-
-	std::string describe(service_description& sd);
+	std::string describe(const ServiceDescription& sd);
 }
