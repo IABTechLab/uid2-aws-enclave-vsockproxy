@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <linux/vm_sockets.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/epoll.h>
@@ -51,6 +52,17 @@ namespace vsockio
 			}
 			return true;
 		}
+
+        static bool setTcpNoDelay(int fd) {
+            int enable = 1;
+            if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &enable, sizeof(enable)) < 0)
+            {
+                const int err = errno;
+                Logger::instance->Log(Logger::ERROR, "setsockopt error: ", strerror(err));
+                return false;
+            }
+            return true;
+        }
 	};
 
     struct Listener
@@ -157,7 +169,13 @@ namespace vsockio
 				return;
 			}
 
-			auto outPeer = connectToPeer();
+            if (_listenEp->getAddress().first->sa_family == AF_INET && !IOControl::setTcpNoDelay(clientFd))
+            {
+                Logger::instance->Log(Logger::ERROR, "failed to turn off Nagle algorithm (fd=", clientFd, ")");
+                return;
+            }
+
+            auto outPeer = connectToPeer();
 			if (!outPeer)
 			{
 				return;
@@ -187,6 +205,12 @@ namespace vsockio
 				Logger::instance->Log(Logger::ERROR, "failed to set non-blocking mode (fd=", fd, ")");
 				return nullptr;
 			}
+
+            if (_connectEp->getAddress().first->sa_family == AF_INET && !IOControl::setTcpNoDelay(fd))
+            {
+                Logger::instance->Log(Logger::ERROR, "failed to turn off Nagle algorithm (fd=", fd, ")");
+                return nullptr;
+            }
 
             auto addrAndLen = _connectEp->getAddress();
             int status = connect(fd, addrAndLen.first, addrAndLen.second);
