@@ -64,34 +64,22 @@ namespace vsockio
 
 		virtual ~Peer() {}
 
-		void onInputReady()
-		{
-			assert(_peer != nullptr);
+        void readInput()
+        {
+            assert(_peer != nullptr);
+            _inputReady = readFromInput();
+        }
 
-			_inputReady = true;
-			while (readFromInput() && _peer->writeToOutput())
-				;
-			--_ioEventCount;
-		}
-
-		void onOutputReady()
-		{
-			assert(_peer != nullptr);
-
-			_outputReady = true;
-			while (writeToOutput() && _peer->readFromInput())
-				;
-			--_ioEventCount;
-		}
+        void writeOutput()
+        {
+            assert(_peer != nullptr);
+            _outputReady = writeToOutput();
+        }
 
 		inline void setPeer(Peer* p)
 		{
 			_peer = p;
 		}
-
-		inline void onIoEvent() { ++_ioEventCount; }
-
-		inline int ioEventCount() const { return _ioEventCount.load(); }
 
 		virtual void close() = 0;
 
@@ -107,6 +95,8 @@ namespace vsockio
 
 		bool queueFull() const { return _queueFull; }
 		virtual bool queueEmpty() const = 0;
+
+        bool hasPendingIO() const { return _inputReady && !closed(); }
 
 	protected:
 		virtual bool readFromInput() = 0;

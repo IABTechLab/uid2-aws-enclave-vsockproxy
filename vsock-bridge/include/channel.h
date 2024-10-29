@@ -5,17 +5,22 @@
 #include "socket.h"
 #include "threading.h"
 
+#include <forward_list>
 #include <memory>
 
 namespace vsockio
 {
+    struct DirectChannel;
+    class IOThread;
+
 	struct ChannelHandle
 	{
-		int channelId;
-		int fd;
+        DirectChannel* _channel;
+        int _id;
+		int _fd;
 
-		ChannelHandle(int channelId, int fd)
-			: channelId(channelId), fd(fd) {}
+		ChannelHandle(DirectChannel* channel, int id, int fd)
+			: _channel(channel), _id(id), _fd(fd) {}
 	};
 
 	struct DirectChannel
@@ -23,63 +28,36 @@ namespace vsockio
 		using TAction = std::function<void()>;
 
 		int _id;
-		BlockingQueue<TAction>* _taskQueue;
+		IOThread& _ioThread;
 
 		std::unique_ptr<Socket> _a;
 		std::unique_ptr<Socket> _b;
 		ChannelHandle _ha;
 		ChannelHandle _hb;
 		
-		DirectChannel(int id, std::unique_ptr<Socket> a, std::unique_ptr<Socket> b, BlockingQueue<TAction>* taskQueue)
+		DirectChannel(int id, std::unique_ptr<Socket> a, std::unique_ptr<Socket> b, IOThread& ioThread)
 			: _id(id)
+            , _ioThread(ioThread)
 			, _a(std::move(a))
 			, _b(std::move(b))
-			, _ha(id, _a->fd())
-			, _hb(id, _b->fd())
-			, _taskQueue(taskQueue)
+			, _ha(this, _id, _a->fd())
+			, _hb(this, _id, _b->fd())
 
 		{
 			_a->setPeer(_b.get());
 			_b->setPeer(_a.get());
 		}
 
-		void handle(int fd, int evt)
-		{
-			Socket* s = _a->fd() == fd ? _a.get() : (_b->fd() == fd ? _b.get() : nullptr);
-			if (s == nullptr)
-			{
-				Logger::instance->Log(Logger::WARNING, "error in channel.handle: `id=", _id,"`, `fd=", fd, "` does not belong to this channel");
-				return;
-			}
+        void performIO();
 
-			if (evt & IOEvent::Error)
-			{
-				Logger::instance->Log(Logger::DEBUG, "poll error for fd=", fd);
-				evt |= IOEvent::InputReady;
-				evt |= IOEvent::OutputReady;
-			}
-
-			if (evt & IOEvent::InputReady)
-			{
-				s->onIoEvent();
-				_taskQueue->enqueue([=] { s->onInputReady(); });
-			}
-
-			if (evt & IOEvent::OutputReady)
-			{
-				s->onIoEvent();
-				_taskQueue->enqueue([=] { s->onOutputReady(); });
-			}
-		}
-
-		void terminate()
-		{
-			_taskQueue->enqueue([this] { delete this; });
-		}
+        bool hasPendingIO() const
+        {
+            return _a->hasPendingIO() || _b->hasPendingIO();
+        }
 
 		bool canBeTerminated() const
 		{
-			return _a->closed() && _b->closed() && _a->ioEventCount() == 0 && _b->ioEventCount() == 0;
+			return _a->closed() && _b->closed();
 		}
 	};
 }

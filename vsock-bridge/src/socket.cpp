@@ -26,16 +26,15 @@ namespace vsockio
 
 		if (_inputClosed) return false;
 
+        if (_peer->queueFull()) return false;
+
 		bool hasInput = false;
-		while (!_inputClosed && _inputReady && !_peer->queueFull())
-		{
-			std::unique_ptr<Buffer> buffer{ read() };
-			if (buffer && !buffer->empty())
-			{
-				_peer->queue(std::move(buffer));
-				hasInput = true;
-			}
-		}
+        std::unique_ptr<Buffer> buffer{ read() };
+        if (buffer && !buffer->empty())
+        {
+            _peer->queue(std::move(buffer));
+            hasInput = true;
+        }
 
 		if (_inputClosed)
 		{
@@ -50,7 +49,8 @@ namespace vsockio
 	{
 		if (_outputClosed) return false;
 
-		while (!_outputClosed && _outputReady && !_sendQueue.empty())
+        bool sentData = false;
+		while (!_outputClosed && !_sendQueue.empty())
 		{
 			std::unique_ptr<Buffer>& buffer = _sendQueue.front();
 
@@ -64,7 +64,10 @@ namespace vsockio
 			}
 			else
 			{
-				send(*buffer);
+				if (send(*buffer))
+                {
+                    sentData = true;
+                }
 				if (buffer->consumed())
 				{
 					_sendQueue.dequeue();
@@ -89,7 +92,7 @@ namespace vsockio
 			}
 		}
 
-		return _sendQueue.empty();
+		return sentData;
 	}
 
 	void Socket::queue(std::unique_ptr<Buffer>&& buffer)
@@ -132,7 +135,6 @@ namespace vsockio
 			{
 				// No new data
 
-				_inputReady = false;
 				break;
 			}
 			else
@@ -148,8 +150,9 @@ namespace vsockio
 		return buffer;
 	}
 
-	void Socket::send(Buffer& buffer)
+	bool Socket::send(Buffer& buffer)
 	{
+        bool sentData = false;
 		while (!buffer.consumed())
 		{
 			const int bytesWritten = _impl.write(_fd, buffer.head(), buffer.headLimit());
@@ -162,6 +165,7 @@ namespace vsockio
 
 				//Logger::instance->Log(Logger::DEBUG, "[socket] write returns ", bytesWritten, " (fd=", _fd, ")");
 				buffer.consume(bytesWritten);
+                sentData = true;
 			}
 			else if((err = errno) == EAGAIN || err == EWOULDBLOCK)
 			{
@@ -179,6 +183,7 @@ namespace vsockio
 			}
 		}
 
+        return sentData;
 	}
 
 	void Socket::closeInput()
@@ -188,9 +193,6 @@ namespace vsockio
 
 	void Socket::close()
 	{
-		_inputReady = false;
-		_outputReady = false;
-
 		if (!closed())
 		{
 			_inputClosed = true;
@@ -222,7 +224,6 @@ namespace vsockio
 			queue(std::move(termination));
 
 			// force process the queue
-			_outputReady = true;
 			writeToOutput();
 		}
 	}

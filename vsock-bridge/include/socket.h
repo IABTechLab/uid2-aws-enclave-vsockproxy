@@ -61,7 +61,7 @@ namespace vsockio
 	private:
 		std::unique_ptr<Buffer> read();
 
-		void send(Buffer& buffer);
+		bool send(Buffer& buffer);
 
 		void closeInput();
 

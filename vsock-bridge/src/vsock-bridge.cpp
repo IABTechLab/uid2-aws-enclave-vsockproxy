@@ -29,7 +29,7 @@ std::unique_ptr<Endpoint> createEndpoint(endpoint_scheme scheme, std::string add
     }
 }
 
-Listener* create_listener(std::vector<Dispatcher*>& dispatchers, endpoint_scheme inScheme, std::string inAddress, uint16_t inPort, endpoint_scheme outScheme, std::string outAddress, uint16_t outPort)
+Listener* create_listener(Dispatcher& dispatcher, endpoint_scheme inScheme, std::string inAddress, uint16_t inPort, endpoint_scheme outScheme, std::string outAddress, uint16_t outPort)
 {
     auto listenEp { createEndpoint(inScheme, inAddress, inPort) };
     auto connectEp{ createEndpoint(outScheme, outAddress, outPort) };
@@ -46,7 +46,7 @@ Listener* create_listener(std::vector<Dispatcher*>& dispatchers, endpoint_scheme
     }
     else
     {
-        return new Listener(std::move(listenEp), std::move(connectEp), dispatchers);
+        return new Listener(std::move(listenEp), std::move(connectEp), dispatcher);
     }
 }
 
@@ -54,28 +54,15 @@ void start_services(std::vector<service_description>& services, int numIOThreads
 {
     Logger::instance->Log(Logger::INFO, "Starting ", numWorkers, " worker threads...");
 
-    for (int i = 0; i < numWorkers; i++)
-    {
-        auto t = std::make_unique<WorkerThread>(
-            /*init:*/ []() { 
-                BufferManager::arena->init(512, 2000); 
-            }
-        );
-        ThreadPool::threads.push_back(std::move(t));
-    }
+    EpollPollerFactory pollerFactory{VSB_MAX_POLL_EVENTS};
+    IOThreadPool threadPool{(size_t)numWorkers, pollerFactory};
+    Dispatcher dispatcher{threadPool};
 
     for (auto& sd : services)
     {
-        std::vector<Dispatcher*>* dispatchers = new std::vector<Dispatcher*>();
-        for (int i = 0; i < 1; i++)
-        {
-            Dispatcher* d = new Dispatcher(i, new EpollPoller(VSB_MAX_POLL_EVENTS));
-            dispatchers->push_back(d);
-        }
-
         Logger::instance->Log(Logger::INFO, "Starting service: ", sd.name);
         Listener* listener = create_listener(
-                            *dispatchers,
+                            dispatcher,
             /*inScheme:*/   sd.listen_ep.scheme,
             /*inAddress:*/  sd.listen_ep.address,
             /*inPort:*/     sd.listen_ep.port,
@@ -91,7 +78,6 @@ void start_services(std::vector<service_description>& services, int numIOThreads
         }
 
         std::thread* listenerThread = new std::thread(&Listener::run, listener);
-        std::thread* dispatcherThread = new std::thread(&Dispatcher::run, listener->_dispatchers[0]);
         serviceThreads.push_back(listenerThread);
     }
 

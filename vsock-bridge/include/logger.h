@@ -54,52 +54,14 @@ struct Logger {
 		_streamProvider = streamProvider;
 	}
 
-	template <typename T0>
-	void Log(int level, const T0& m0)
+	template <typename... Ts>
+	void Log(int level, const Ts&... args)
 	{
 		if (level < _minLevel || _streamProvider == nullptr) return;
 		std::lock_guard<std::mutex> lk(_lock);
-		_streamProvider->startLog(level) << m0 << std::endl;
-	}
-
-	template <typename T0, typename T1>
-	void Log(int level, const T0& m0, const T1& m1)
-	{
-		if (level < _minLevel || _streamProvider == nullptr) return;
-		std::lock_guard<std::mutex> lk(_lock);
-		_streamProvider->startLog(level) << m0 << m1 << std::endl;
-	}
-
-	template <typename T0, typename T1, typename T2>
-	void Log(int level, const T0& m0, const T1& m1, const T2& m2)
-	{
-		if (level < _minLevel || _streamProvider == nullptr) return;
-		std::lock_guard<std::mutex> lk(_lock);
-		_streamProvider->startLog(level) << m0 << m1 << m2 << std::endl;
-	}
-
-	template <typename T0, typename T1, typename T2, typename T3>
-	void Log(int level, const T0& m0, const T1& m1, const T2& m2, const T3& m3)
-	{
-		if (level < _minLevel || _streamProvider == nullptr) return;
-		std::lock_guard<std::mutex> lk(_lock);
-		_streamProvider->startLog(level) << m0 << m1 << m2 << m3 << std::endl;
-	}
-
-	template <typename T0, typename T1, typename T2, typename T3, typename T4>
-	void Log(int level, const T0& m0, const T1& m1, const T2& m2, const T3& m3, const T4& m4)
-	{
-		if (level < _minLevel || _streamProvider == nullptr) return;
-		std::lock_guard<std::mutex> lk(_lock);
-		_streamProvider->startLog(level) << m0 << m1 << m2 << m3 << m4 << std::endl;
-	}
-
-	template <typename T0, typename T1, typename T2, typename T3, typename T4, typename T5>
-	void Log(int level, const T0& m0, const T1& m1, const T2& m2, const T3& m3, const T4& m4, const T5& m5)
-	{
-		if (level < _minLevel || _streamProvider == nullptr) return;
-		std::lock_guard<std::mutex> lk(_lock);
-		_streamProvider->startLog(level) << m0 << m1 << m2 << m3 << m4 << m5 << std::endl;
+		auto& s = _streamProvider->startLog(level);
+        (s << ... << args);
+        s << std::endl;
 	}
 };
 
