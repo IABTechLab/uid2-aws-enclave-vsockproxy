@@ -109,6 +109,7 @@ namespace vsockio
 
 		while (true)
 		{
+            PERF_LOG("read");
 			const int bytesRead = _impl.read(_fd, buffer->tail(), buffer->remainingCapacity());
 			int err = 0;
 			if (bytesRead > 0)
@@ -155,6 +156,7 @@ namespace vsockio
         bool sentData = false;
 		while (!buffer.consumed())
 		{
+            PERF_LOG("send");
 			const int bytesWritten = _impl.write(_fd, buffer.head(), buffer.headLimit());
 
 			int err = 0;

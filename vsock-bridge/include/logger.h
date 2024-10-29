@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <ctime>
 #include <fstream>
 #include <iomanip>
@@ -142,3 +143,21 @@ struct RSyslogLogger : public LoggingStream
 	std::ostream _critical;
 	NullStream _nullStream;
 };
+
+struct PerfLogger
+{
+    const char* const _name;
+    const std::chrono::time_point<std::chrono::steady_clock> _start;
+
+    explicit PerfLogger(const char* name) : _name(name), _start(std::chrono::steady_clock::now()) {}
+    ~PerfLogger()
+    {
+        const auto end = std::chrono::steady_clock::now();
+        const std::chrono::duration<double> diff = end - _start;
+        Logger::instance->Log(Logger::DEBUG, "Latency ", _name, " ", diff.count(), "s");
+    }
+};
+
+#define VSOCKIO_COMBINE1(X,Y) X##Y
+#define VSOCKIO_COMBINE(X,Y) VSOCKIO_COMBINE1(X,Y)
+#define PERF_LOG(name) PerfLogger VSOCKIO_COMBINE(__perfLog, __LINE__){name}

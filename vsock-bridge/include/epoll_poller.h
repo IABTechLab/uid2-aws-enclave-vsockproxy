@@ -55,6 +55,7 @@ namespace vsockio
 
 		int poll(VsbEvent* outEvents, int timeout) override
 		{
+            PERF_LOG("poll");
 			int eventCount = epoll_wait(_epollFd, _epollEvents.get(), _maxEvents, timeout);
 
 			if (eventCount == -1)
