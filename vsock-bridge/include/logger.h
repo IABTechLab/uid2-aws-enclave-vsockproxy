@@ -158,6 +158,10 @@ struct PerfLogger
     }
 };
 
+#ifdef ENABLE_VSOCKIO_PERF
 #define VSOCKIO_COMBINE1(X,Y) X##Y
 #define VSOCKIO_COMBINE(X,Y) VSOCKIO_COMBINE1(X,Y)
 #define PERF_LOG(name) PerfLogger VSOCKIO_COMBINE(__perfLog, __LINE__){name}
+#else
+#define PERF_LOG(name) do {} while(0)
+#endif
