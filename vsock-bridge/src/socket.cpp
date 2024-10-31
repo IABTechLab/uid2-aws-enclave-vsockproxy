@@ -49,6 +49,8 @@ namespace vsockio
 
 	bool Socket::writeToOutput()
 	{
+        if (!_connected) return false;
+
 		if (_outputClosed) return false;
 
         bool sentData = false;
