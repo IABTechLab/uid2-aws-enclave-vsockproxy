@@ -1,8 +1,9 @@
 #pragma once
 
-#include "peer.h"
+#include "buffer.h"
 #include "poller.h"
 
+#include <cassert>
 #include <functional>
 #include <memory>
 
@@ -28,7 +29,7 @@ namespace vsockio
 			close(closeImpl) {}
 	};
 
-	class Socket : public Peer<std::unique_ptr<Buffer>>
+	class Socket
 	{
 	public:
 		Socket(int fd, SocketImpl& impl);
@@ -38,11 +39,24 @@ namespace vsockio
 
 		~Socket();
 
+        void readInput()
+        {
+            assert(_peer != nullptr);
+            _inputReady = readFromInput();
+        }
+
+        void writeOutput()
+        {
+            assert(_peer != nullptr);
+            _outputReady = writeToOutput();
+        }
+
+        inline void setPeer(Socket* p)
+        {
+            _peer = p;
+        }
+
 		inline int fd() const { return _fd; }
-
-		void close() override;
-
-		bool queueEmpty() const override { return _sendQueue.empty(); }
 
 		void setPoller(Poller* poller)
 		{
@@ -52,27 +66,38 @@ namespace vsockio
         bool connected() const { return _connected; }
         void onConnected() { _connected = true; }
 
-	protected:
-		bool readFromInput() override;
+        bool closed() const { return _inputClosed && _outputClosed; }
 
-		bool writeToOutput() override;
+        bool hasPendingIO() const { return (_inputReady || _outputReady) && !closed(); }
 
-		void onPeerClosed() override;
+    private:
+		bool readFromInput();
+		bool writeToOutput();
 
-		void queue(std::unique_ptr<Buffer>&& buffer) override;
+		void onPeerClosed();
 
-	private:
-		std::unique_ptr<Buffer> read();
-
+		bool read(Buffer& buffer);
 		bool send(Buffer& buffer);
+        void close();
 
 		void closeInput();
 
-	private:
+        bool inputClosed() const { return _inputClosed; }
+        bool outputClosed() const { return _outputClosed; }
+        bool hasQueuedData() const { return !_buffer.consumed(); }
+
+        Buffer& buffer() { return _buffer; }
+
+    private:
 		SocketImpl& _impl;
-		UniquePtrQueue<Buffer> _sendQueue;
+        bool _inputReady = false;
+        bool _outputReady = false;
+        bool _inputClosed = false;
+        bool _outputClosed = false;
+        Socket* _peer;
 		int _fd;
         bool _connected = false;
 		Poller* _poller = nullptr;
+        Buffer _buffer;
 	};
 }

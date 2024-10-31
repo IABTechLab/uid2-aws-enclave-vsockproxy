@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <sstream>
 
 namespace vsockproxy
@@ -36,41 +37,40 @@ namespace vsockproxy
 
 	 */
 
-	struct yaml_line
+	struct YamlLine
 	{
-		bool is_empty;
-		bool is_comment;
-		bool is_list_element;
-		int level;
-		std::string key;
-		std::string value;
+		bool _isEmpty;
+		bool _isComment;
+		bool _isListElement;
+		int _level;
+		std::string _key;
+		std::string _value;
 	};
 
-	std::string name_service_type(service_type t)
+	static std::string nameServiceType(ServiceType t)
 	{
 		switch (t)
 		{
-		case service_type::DIRECT_PROXY: return "direct";
-		case service_type::SOCKS_PROXY: return "socks";
-		case service_type::FILE: return "file";
+		case ServiceType::DIRECT_PROXY: return "direct";
+		case ServiceType::SOCKS_PROXY: return "socks";
 		default: return "unknown";
 		}
 	}
 
-	std::string name_scheme(endpoint_scheme t)
+    static std::string nameEndpointScheme(EndpointScheme t)
 	{
 		switch (t)
 		{
-		case endpoint_scheme::TCP4: return "tcp";
-		case endpoint_scheme::VSOCK: return "vsock";
+		case EndpointScheme::TCP4: return "tcp";
+		case EndpointScheme::VSOCK: return "vsock";
 		default: return "unknown";
 		}
 	}
 
 
-	uint16_t try_str2short(std::string s, uint16_t default_value)
+    static std::optional<uint16_t> tryStr2Short(const std::string& s)
 	{
-		if (s.size() == 0) return default_value;
+		if (s.empty()) return std::nullopt;
 
 		uint16_t value = 0;
 		for (int i = 0; i < s.size(); i++)
@@ -82,24 +82,24 @@ namespace vsockproxy
 			}
 			else
 			{
-				return default_value;
+				return std::nullopt;
 			}
 		}
 
 		return value;
 	}
 
-	yaml_line nextline(std::ifstream& s)
+    static YamlLine nextLine(std::ifstream& s)
 	{
-		yaml_line y;
-		y.is_empty = true;
-		y.is_comment = false;
-		y.is_list_element = false;
+        YamlLine y;
+		y._isEmpty = true;
+		y._isComment = false;
+		y._isListElement = false;
 		for (std::string line; std::getline(s, line); )
 		{
-			y.is_empty = true;
-			y.is_comment = false;
-			y.is_list_element = false;
+			y._isEmpty = true;
+			y._isComment = false;
+			y._isListElement = false;
 
 			if (line == "---") continue;
 
@@ -110,23 +110,23 @@ namespace vsockproxy
 			{
 				if (line[i] != ' ' && line[i] != '\t' && line[i] != '\r' && line[i] != '\n')
 				{
-					if (y.is_empty)
+					if (y._isEmpty)
 					{
 						// first character
-						y.is_empty = false;
-						y.level = i;
+						y._isEmpty = false;
+						y._level = i;
 						if (line[i] == '#')
 						{
-							y.is_comment = true;
+							y._isComment = true;
 							break;
 						}
 						else if (line[i] == '-')
 						{
-							y.is_list_element = true;
+							y._isListElement = true;
 						}
 						state = 1;
 
-						if (y.is_list_element) continue; // skip '-'
+						if (y._isListElement) continue; // skip '-'
 					}
 
 					if (state == 1)
@@ -148,44 +148,53 @@ namespace vsockproxy
 				}
 			}
 
-			if (key.size() > 0)
+			if (!key.empty())
 			{
-				y.key = key;
-				y.value = value;
+				y._key = key;
+				y._value = value;
 				break;
 			}
 		}
 		return y;
 	}
 
-	void tryparse_endpoint(std::string& value, endpoint& out_ep)
+    static std::optional<EndpointConfig> tryparseEndpoint(const std::string& value)
 	{
+        EndpointConfig endpointConfig;
 		size_t p = value.find(':');
 		if (p != value.npos)
 		{
-			std::string scheme = value.substr(0, p);
+			const std::string scheme = value.substr(0, p);
 			if (scheme == "vsock")
 			{
-				out_ep.scheme = endpoint_scheme::VSOCK;
+                endpointConfig._scheme = EndpointScheme::VSOCK;
 			}
 			else if (scheme == "tcp")
 			{
-				out_ep.scheme = endpoint_scheme::TCP4;
+                endpointConfig._scheme = EndpointScheme::TCP4;
 			}
 		}
 		p += 3; // skip '://'
 
-		size_t p2 = value.find(':', p);
+		const size_t p2 = value.find(':', p);
 		if (p2 != value.npos)
 		{
-			out_ep.address = value.substr(p, p2 - p);
-			out_ep.port = try_str2short(value.substr(p2 + 1), 0);
+            endpointConfig._address = value.substr(p, p2 - p);
+            const auto port = tryStr2Short(value.substr(p2 + 1));
+            if (!port)
+            {
+                Logger::instance->Log(Logger::CRITICAL, "invalid port number: ", value.substr(p2 + 1));
+                return std::nullopt;
+            }
+            endpointConfig._port = *port;
 		}
+
+        return endpointConfig;
 	}
 
-	std::vector<service_description> load_config(std::string filepath)
+	std::vector<ServiceDescription> loadConfig(const std::string& filepath)
 	{
-		std::vector<service_description> services;
+		std::vector<ServiceDescription> services;
 
 		std::ifstream f;
 		f.open(filepath);
@@ -196,70 +205,72 @@ namespace vsockproxy
 			return services;
 		}
 
-		int level_indent = -1;
+		int levelIndent = -1;
 
-		service_description cs;
-		cs.type = service_type::UNKNOWN;
-		cs.listen_ep.scheme = endpoint_scheme::UNKNOWN;
+		ServiceDescription cs;
 		while (true)
 		{
-			yaml_line line = nextline(f);
-			if (line.is_empty) break;
+			YamlLine line = nextLine(f);
+			if (line._isEmpty) break;
 
-			if (line.level == 0)
+			if (line._level == 0)
 			{
-				if (cs.type != service_type::UNKNOWN)
+				if (cs._type != ServiceType::UNKNOWN)
 				{
 					services.push_back(cs);
 				}
-				cs = service_description();
-				cs.type = service_type::UNKNOWN;
-				cs.listen_ep.scheme = endpoint_scheme::UNKNOWN;
-				cs.name = line.key;
+				cs = ServiceDescription();
+				cs._name = line._key;
 			}
 			else
 			{
-				if (level_indent == -1)
+				if (levelIndent == -1)
 				{
 					// first time we find non-zero indentation,
 					// use this to determine level
-					level_indent = line.level;
+					levelIndent = line._level;
 				}
 
-				int level = line.level / level_indent;
+				const int level = line._level / levelIndent;
 				if (level == 1)
 				{
-					if (line.key == "service")
+					if (line._key == "service")
 					{
-						if (line.value == "socks")
-							cs.type = service_type::SOCKS_PROXY;
-						else if (line.value == "file")
-							cs.type = service_type::FILE;
-						else if (line.value == "direct")
-							cs.type = service_type::DIRECT_PROXY;
+						if (line._value == "socks")
+							cs._type = ServiceType::SOCKS_PROXY;
+						else if (line._value == "direct")
+							cs._type = ServiceType::DIRECT_PROXY;
 						else
-							cs.type = service_type::UNKNOWN;
+                        {
+                            Logger::instance->Log(Logger::CRITICAL, "unknown service type for service: ", cs._name);
+                            return {};
+                        }
 					}
-					else if (line.key == "listen")
+					else if (line._key == "listen")
 					{
-						tryparse_endpoint(line.value, cs.listen_ep);
+						const auto endpoint = tryparseEndpoint(line._value);
+                        if (!endpoint)
+                        {
+                            Logger::instance->Log(Logger::CRITICAL, "failed to parse listen endpoint config: ", line._value, " for service: ", cs._name);
+                            return {};
+                        }
+                        cs._listenEndpoint = *endpoint;
 					}
-					else if (line.key == "connect")
+					else if (line._key == "connect")
 					{
-						tryparse_endpoint(line.value, cs.connect_ep);
-					}
-				}
-				else if (level == 2)
-				{
-					if (line.is_list_element)
-					{
-						cs.mapping.push_back(std::make_pair(line.key, line.value));
+                        const auto endpoint = tryparseEndpoint(line._value);
+                        if (!endpoint)
+                        {
+                            Logger::instance->Log(Logger::CRITICAL, "failed to parse connect endpoint config: ", line._value, " for service: ", cs._name);
+                            return {};
+                        }
+                        cs._listenEndpoint = *endpoint;
 					}
 				}
 			}
 		}
 
-		if (cs.type != service_type::UNKNOWN)
+		if (cs._type != ServiceType::UNKNOWN)
 		{
 			services.push_back(cs);
 		}
@@ -267,19 +278,13 @@ namespace vsockproxy
 		return services;
 	}
 
-	std::string describe(service_description& sd)
+	std::string describe(const ServiceDescription& sd)
 	{
 		std::stringstream ss;
-		ss << sd.name
-			<< "\n  type: " << name_service_type(sd.type)
-			<< "\n  listen: " << name_scheme(sd.listen_ep.scheme) << "://" << sd.listen_ep.address << ":" << sd.listen_ep.port
-			<< "\n  connect: " << name_scheme(sd.connect_ep.scheme) << "://" << sd.connect_ep.address << ":" << sd.connect_ep.port
-			<< "\n  mapping:";
-
-		for (auto& p : sd.mapping)
-		{
-			ss << "\n    - " << p.first << ":" << p.second;
-		}
+		ss << sd._name
+			<< "\n  type: " << nameServiceType(sd._type)
+			<< "\n  listen: " << nameEndpointScheme(sd._listenEndpoint._scheme) << "://" << sd._listenEndpoint._address << ":" << sd._listenEndpoint._port
+			<< "\n  connect: " << nameEndpointScheme(sd._connectEndpoint._scheme) << "://" << sd._connectEndpoint._address << ":" << sd._connectEndpoint._port;
 
 		return ss.str();
 	}

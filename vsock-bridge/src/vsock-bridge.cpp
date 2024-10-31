@@ -5,20 +5,18 @@ using namespace vsockproxy;
 
 #define VSB_MAX_POLL_EVENTS 256
 
-void sigpipe_handler(int unused)
+static void sigpipe_handler(int unused)
 {
     Logger::instance->Log(Logger::DEBUG, "SIGPIPE received");
 }
 
-std::vector<std::thread*> serviceThreads;
-
-std::unique_ptr<Endpoint> createEndpoint(endpoint_scheme scheme, std::string address, uint16_t port)
+static std::unique_ptr<Endpoint> createEndpoint(EndpointScheme scheme, const std::string& address, uint16_t port)
 {
-    if (scheme == endpoint_scheme::TCP4)
+    if (scheme == EndpointScheme::TCP4)
     {
         return std::move(std::make_unique<TCP4Endpoint>(address, port));
     }
-    else if (scheme == endpoint_scheme::VSOCK)
+    else if (scheme == EndpointScheme::VSOCK)
     {
         int cid = std::atoi(address.c_str());
         return std::move(std::make_unique<VSockEndpoint>(cid, port));
@@ -29,7 +27,7 @@ std::unique_ptr<Endpoint> createEndpoint(endpoint_scheme scheme, std::string add
     }
 }
 
-Listener* create_listener(Dispatcher& dispatcher, endpoint_scheme inScheme, std::string inAddress, uint16_t inPort, endpoint_scheme outScheme, std::string outAddress, uint16_t outPort)
+static std::unique_ptr<Listener> createListener(Dispatcher& dispatcher, EndpointScheme inScheme, const std::string& inAddress, uint16_t inPort, EndpointScheme outScheme, const std::string& outAddress, uint16_t outPort)
 {
     auto listenEp { createEndpoint(inScheme, inAddress, inPort) };
     auto connectEp{ createEndpoint(outScheme, outAddress, outPort) };
@@ -46,49 +44,51 @@ Listener* create_listener(Dispatcher& dispatcher, endpoint_scheme inScheme, std:
     }
     else
     {
-        return new Listener(std::move(listenEp), std::move(connectEp), dispatcher);
+        return std::make_unique<Listener>(std::move(listenEp), std::move(connectEp), dispatcher);
     }
 }
 
-void start_services(std::vector<service_description>& services, int numIOThreads, int numWorkers)
+static void startServices(const std::vector<ServiceDescription>& services, int numWorkers)
 {
     Logger::instance->Log(Logger::INFO, "Starting ", numWorkers, " worker threads...");
 
     EpollPollerFactory pollerFactory{VSB_MAX_POLL_EVENTS};
     IOThreadPool threadPool{(size_t)numWorkers, pollerFactory};
     Dispatcher dispatcher{threadPool};
+    std::vector<std::unique_ptr<Listener>> listeners;
+    std::vector<std::thread> listenerThreads;
 
-    for (auto& sd : services)
+    for (const auto& sd : services)
     {
-        Logger::instance->Log(Logger::INFO, "Starting service: ", sd.name);
-        Listener* listener = create_listener(
+        Logger::instance->Log(Logger::INFO, "Starting service: ", sd._name);
+        auto listener = createListener(
                             dispatcher,
-            /*inScheme:*/   sd.listen_ep.scheme,
-            /*inAddress:*/  sd.listen_ep.address,
-            /*inPort:*/     sd.listen_ep.port,
-            /*outScheme:*/  sd.connect_ep.scheme,
-            /*outAddress:*/ sd.connect_ep.address,
-            /*outPort:*/    sd.connect_ep.port
+            /*inScheme:*/   sd._listenEndpoint._scheme,
+            /*inAddress:*/  sd._listenEndpoint._address,
+            /*inPort:*/     sd._listenEndpoint._port,
+            /*outScheme:*/  sd._connectEndpoint._scheme,
+            /*outAddress:*/ sd._connectEndpoint._address,
+            /*outPort:*/    sd._connectEndpoint._port
         );
 
-        if (listener == nullptr)
+        if (!listener)
         {
-            Logger::instance->Log(Logger::CRITICAL, "failed to start listener for ", sd.name);
+            Logger::instance->Log(Logger::CRITICAL, "failed to start listener for ", sd._name);
             exit(1);
         }
 
-        std::thread* listenerThread = new std::thread(&Listener::run, listener);
-        serviceThreads.push_back(listenerThread);
+        listenerThreads.emplace_back(&Listener::run, listener.get());
+        listeners.emplace_back(std::move(listener));
     }
 
-    for (auto* t : serviceThreads)
+    for (auto& t : listenerThreads)
     {
-        if (t->joinable())
-            t->join();
+        if (t.joinable())
+            t.join();
     }
 }
 
-void show_help()
+static void showHelp()
 {
     std::cout
         << "usage: vsockpx -c <config-file> [-d] [--log-level [0-3]] [--num-threads n] [--iothreads n] [...]\n"
@@ -100,11 +100,11 @@ void show_help()
         << std::flush;
 }
 
-void quit_bad_args(const char* reason, bool showhelp)
+static void quitBadArgs(const char* reason, bool showhelp)
 {
     std::cout << reason << std::endl;
     if (showhelp)
-        show_help();
+        showHelp();
     exit(1);
 }
 
@@ -114,14 +114,13 @@ int main(int argc, char* argv[])
     sigaction(SIGPIPE, (struct sigaction*)&sig, NULL);
 
     bool daemonize = false;
-    std::string config_path;
-    int min_log_level = 1;
-    int num_worker_threads = 1;
-    int num_iothreads = 1;
+    std::string configPath;
+    int minLogLevel = 1;
+    int numWorkerThreads = 1;
 
     if (argc < 2)
     {
-        show_help();
+        showHelp();
         return 1;
     }
 
@@ -129,7 +128,7 @@ int main(int argc, char* argv[])
     {
         if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0)
         {
-            show_help();
+            showHelp();
             exit(0);
         }
 
@@ -142,23 +141,23 @@ int main(int argc, char* argv[])
         {
             if (i + 1 == argc)
             {
-                quit_bad_args("no filepath followed by --config", false);
+                quitBadArgs("no filepath followed by --config", false);
             }
-            config_path = std::string(argv[++i]);
+            configPath = std::string(argv[++i]);
         }
 
         else if (strcmp(argv[i], "--workers") == 0)
         {
             if (i + 1 == argc)
             {
-                quit_bad_args("no number followed by --workers", false);
+                quitBadArgs("no number followed by --workers", false);
             }
 
-            num_worker_threads = std::stoi(std::string(argv[++i]));
+            numWorkerThreads = std::stoi(std::string(argv[++i]));
 
-            if (num_worker_threads == 0)
+            if (numWorkerThreads == 0)
             {
-                quit_bad_args("--workers should be at least 1", false);
+                quitBadArgs("--workers should be at least 1", false);
             }
         }
 
@@ -166,46 +165,26 @@ int main(int argc, char* argv[])
         {
             if (i + 1 == argc)
             {
-                quit_bad_args("no log level followed by --log-level", false);
+                quitBadArgs("no log level followed by --log-level", false);
             }
             try
             {
-                min_log_level = std::stoi(std::string(argv[++i]));
+                minLogLevel = std::stoi(std::string(argv[++i]));
             }
             catch (std::invalid_argument _)
             {
-                quit_bad_args("invalid log level, must be 0, 1, 2, 3 or 4", false);
+                quitBadArgs("invalid log level, must be 0, 1, 2, 3 or 4", false);
             }
-            if (min_log_level < 0 || min_log_level > 4)
+            if (minLogLevel < 0 || minLogLevel > 4)
             {
-                quit_bad_args("invalid log level, must be 0, 1, 2, 3 or 4", false);
-            }
-        }
-
-        else if (strcmp(argv[i], "--iothreads") == 0)
-        {
-            if (i + 1 == argc)
-            {
-                quit_bad_args("no number followed by --iothreads", false);
-            }
-            try
-            {
-                num_iothreads = std::stoi(std::string(argv[++i]));
-            }
-            catch (std::invalid_argument _)
-            {
-                quit_bad_args("invalid io thread count, must be number > 0", false);
-            }
-            if (num_iothreads <= 0)
-            {
-                quit_bad_args("invalid io thread count, must be number > 0", false);
+                quitBadArgs("invalid log level, must be 0, 1, 2, 3 or 4", false);
             }
         }
     }
 
-    if (config_path.empty())
+    if (configPath.empty())
     {
-        quit_bad_args("no configuration file, use -c/--config or --help for more info.", false);
+        quitBadArgs("no configuration file, use -c/--config or --help for more info.", false);
     }
 
     if (daemonize)
@@ -218,7 +197,7 @@ int main(int argc, char* argv[])
 
         umask(0);
 
-        Logger::instance->setMinLevel(min_log_level);
+        Logger::instance->setMinLevel(minLogLevel);
         Logger::instance->setStreamProvider(new RSyslogLogger("vsockpx"));
 
         sid = setsid();
@@ -230,19 +209,19 @@ int main(int argc, char* argv[])
     }
     else
     {
-        Logger::instance->setMinLevel(min_log_level);
+        Logger::instance->setMinLevel(minLogLevel);
         Logger::instance->setStreamProvider(new StdoutLogger());
     }
 
-    std::vector<service_description> services = load_config(config_path);
+    const std::vector<ServiceDescription> services = loadConfig(configPath);
 
     if (services.empty())
     {
         Logger::instance->Log(Logger::CRITICAL, "No services are configured, quitting.");
-        exit(0);
+        exit(1);
     }
 
-    start_services(services, num_iothreads, num_worker_threads);
+    startServices(services, numWorkerThreads);
 
     return 0;
 }

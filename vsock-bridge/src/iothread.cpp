@@ -14,8 +14,6 @@ namespace vsockio
 
     void IOThread::run()
     {
-        BufferManager::arena->init(1024, 2000);
-
         while (!_terminateFlag.load(std::memory_order_relaxed))
         {
             addPendingChannels();

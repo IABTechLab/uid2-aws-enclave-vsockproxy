@@ -28,15 +28,9 @@ namespace vsockio
 
 		if (_inputClosed) return false;
 
-        if (_peer->queueFull()) return false;
+        if (_peer->hasQueuedData()) return false;
 
-		bool hasInput = false;
-        std::unique_ptr<Buffer> buffer{ read() };
-        if (buffer && !buffer->empty())
-        {
-            _peer->queue(std::move(buffer));
-            hasInput = true;
-        }
+		const bool canReadMoreData = read(_peer->buffer());
 
 		if (_inputClosed)
 		{
@@ -44,7 +38,7 @@ namespace vsockio
 			close();
 		}
 
-		return hasInput;
+		return canReadMoreData;
 	}
 
 	bool Socket::writeToOutput()
@@ -53,115 +47,72 @@ namespace vsockio
 
 		if (_outputClosed) return false;
 
-        bool sentData = false;
-		while (!_outputClosed && !_sendQueue.empty())
-		{
-			std::unique_ptr<Buffer>& buffer = _sendQueue.front();
-
-			// received termination signal from peer
-			if (buffer->empty())
-			{
-				Logger::instance->Log(Logger::DEBUG, "[socket] writeToOutput dequeued a termination buffer (fd=", _fd, ")");
-				_sendQueue.dequeue();
-				close();
-				break;
-			}
-			else
-			{
-				if (send(*buffer))
+        bool canSendModeData = false;
+		if (!_outputClosed) {
+            if (!_buffer.consumed()) {
+                canSendModeData = send(_buffer);
+                if (_buffer.consumed())
                 {
-                    sentData = true;
+                    _buffer.reset();
                 }
-				if (buffer->consumed())
-				{
-					_sendQueue.dequeue();
-					_queueFull = false;
-				}
-			}
-		}
+            }
+        }
 
-		if (_peer->closed())
+		if (_peer->closed() && _buffer.consumed())
 		{
-			if (_sendQueue.empty())
-			{
-				Logger::instance->Log(Logger::DEBUG, "[socket] writeToOutput detected input peer is closed, closing (fd=", _fd, ")");
-				close();
-			}
-			else if (!_peer->queueEmpty())
-			{
-				// Peer has some queued data they never received
-				// Assuming this data is critical for the protocol, it should be ok to abort the connection straight away
-				Logger::instance->Log(Logger::DEBUG, "[socket] writeToOutput detected input peer is closed while having data remaining, closing (fd=", _fd, ")");
-				close();
-			}
+            Logger::instance->Log(Logger::DEBUG, "[socket] writeToOutput finished draining socket, closing (fd=", _fd, ")");
+            close();
 		}
 
-		return sentData;
+		return canSendModeData;
 	}
 
-	void Socket::queue(std::unique_ptr<Buffer>&& buffer)
+	bool Socket::read(Buffer& buffer)
 	{
-		_sendQueue.enqueue(std::move(buffer));
+        if (!buffer.hasRemainingCapacity()) return false;
 
-		// to simplify logic we allow only 1 buffer for socket sinks
-		_queueFull = true;
-	}
+        PERF_LOG("read");
+        const int bytesRead = _impl.read(_fd, buffer.tail(), buffer.remainingCapacity());
+        int err = 0;
+        if (bytesRead > 0)
+        {
+            // New content read
 
-	std::unique_ptr<Buffer> Socket::read()
-	{
-		std::unique_ptr<Buffer> buffer{ BufferManager::getBuffer() };
+            //Logger::instance->Log(Logger::DEBUG, "[socket] read returns ", bytesRead, " (fd=", _fd, ")");
+            buffer.produce(bytesRead);
+            return true;
+        }
+        else if (bytesRead == 0)
+        {
+            // Source closed
 
-		while (true)
-		{
-            PERF_LOG("read");
-			const int bytesRead = _impl.read(_fd, buffer->tail(), buffer->remainingCapacity());
-			int err = 0;
-			if (bytesRead > 0)
-			{
-				// New content read
-				// update byte count and enlarge buffer if needed
+            Logger::instance->Log(Logger::DEBUG, "[socket] read returns 0, closing input (fd=", _fd, ")");
+            closeInput();
+            return false;
+        }
+        else if ((err = errno) == EAGAIN || err == EWOULDBLOCK)
+        {
+            // No new data
 
-				//Logger::instance->Log(Logger::DEBUG, "[socket] read returns ", bytesRead, " (fd=", _fd, ")");
-				buffer->produce(bytesRead);
-				if (!buffer->ensureCapacity())
-				{
-					break;
-				}
-			}
-			else if (bytesRead == 0)
-			{
-				// Source closed
+            return false;
+        }
+        else
+        {
+            // Error
 
-				Logger::instance->Log(Logger::DEBUG, "[socket] read returns 0, closing input (fd=", _fd, ")");
-				closeInput();
-				break;
-			}
-			else if ((err = errno) == EAGAIN || err == EWOULDBLOCK)
-			{
-				// No new data
-
-				break;
-			}
-			else
-			{
-				// Error
-
-				Logger::instance->Log(Logger::WARNING, "[socket] error on read, closing input (fd=", _fd, "): ", strerror(err));
-				closeInput();
-				break;
-			}
-		}
-
-		return buffer;
+            Logger::instance->Log(Logger::WARNING, "[socket] error on read, closing input (fd=", _fd, "): ", err, ", ", strerror(err));
+            closeInput();
+            return false;
+        }
 	}
 
 	bool Socket::send(Buffer& buffer)
 	{
-        bool sentData = false;
+        bool canSendModeData = false;
 		while (!buffer.consumed())
 		{
             PERF_LOG("send");
-			const int bytesWritten = _impl.write(_fd, buffer.head(), buffer.headLimit());
+			const int bytesWritten = _impl.write(_fd, buffer.head(), buffer.remainingDataSize());
 
 			int err = 0;
 			if (bytesWritten > 0)
@@ -171,13 +122,12 @@ namespace vsockio
 
 				//Logger::instance->Log(Logger::DEBUG, "[socket] write returns ", bytesWritten, " (fd=", _fd, ")");
 				buffer.consume(bytesWritten);
-                sentData = true;
+                canSendModeData = true;
 			}
 			else if((err = errno) == EAGAIN || err == EWOULDBLOCK)
 			{
 				// Write blocked
-				_outputReady = false;
-				break;
+				return false;
 			}
 			else
 			{
@@ -185,11 +135,11 @@ namespace vsockio
 
 				Logger::instance->Log(Logger::WARNING, "[socket] error on send, closing (fd=", _fd, "): ", strerror(err));
 				close();
-				break;
+				return false;
 			}
 		}
 
-        return sentData;
+        return canSendModeData;
 	}
 
 	void Socket::closeInput()
@@ -225,12 +175,18 @@ namespace vsockio
 	{
 		if (!closed())
 		{
-			Logger::instance->Log(Logger::DEBUG, "[socket] sending termination for (fd=", _fd, ")");
-			std::unique_ptr<Buffer> termination{ BufferManager::getEmptyBuffer() };
-			queue(std::move(termination));
+			Logger::instance->Log(Logger::DEBUG, "[socket] onPeerClosed draining socket (fd=", _fd, ")");
 
-			// force process the queue
+			// force process the output queue
 			writeToOutput();
+
+            if (_peer->hasQueuedData())
+            {
+                // Peer has some queued data they never received
+                // Assuming this data is critical for the protocol, it should be ok to abort the connection straight away
+                Logger::instance->Log(Logger::DEBUG, "[socket] onPeerClosed detected input peer is closed while having data remaining, closing (fd=", _fd, ")");
+                close();
+            }
 		}
 	}
 
