@@ -86,6 +86,7 @@ namespace vsockio
 				}
 
 				outEvents[i].data = _epollEvents[i].data.ptr;
+                outEvents[i].fd = _epollEvents[i].data.fd;
 			}
 
 			return eventCount;
