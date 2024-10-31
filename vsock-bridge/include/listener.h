@@ -209,10 +209,16 @@ namespace vsockio
 
             auto addrAndLen = _connectEp->getAddress();
             int status = connect(fd, addrAndLen.first, addrAndLen.second);
-            if (status == 0 || (status = errno) == EINPROGRESS)
+            if (status == 0)
             {
+                peer->onConnected();
                 Logger::instance->Log(Logger::DEBUG, "connected to remote endpoint (fd=", fd, ") with status=", status);
 				return peer;
+            }
+            if ((status = errno) == EINPROGRESS)
+            {
+                Logger::instance->Log(Logger::DEBUG, "connection to remote endpoint (fd=", fd, ") in progress");
+                return peer;
             }
             else
             {

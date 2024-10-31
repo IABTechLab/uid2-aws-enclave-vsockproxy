@@ -49,6 +49,9 @@ namespace vsockio
 			_poller = poller;
 		}
 
+        bool connected() const { return _connected; }
+        void onConnected() { _connected = true; }
+
 	protected:
 		bool readFromInput() override;
 
@@ -69,6 +72,7 @@ namespace vsockio
 		SocketImpl& _impl;
 		UniquePtrQueue<Buffer> _sendQueue;
 		int _fd;
+        bool _connected = false;
 		Poller* _poller = nullptr;
 	};
 }

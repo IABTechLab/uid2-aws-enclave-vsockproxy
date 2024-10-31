@@ -70,6 +70,12 @@ namespace vsockio
             auto* handle = static_cast<ChannelHandle *>(_events[i].data);
             auto* channel = handle->_channel;
             _readyChannels.insert(channel);
+
+            Socket& s = channel->getSocket(_events[i].fd);
+            if ((_events[i].ioFlags & IOEvent::OutputReady) && !s.connected())
+            {
+                s.onConnected();
+            }
         }
     }
 

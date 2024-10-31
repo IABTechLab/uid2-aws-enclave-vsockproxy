@@ -24,6 +24,8 @@ namespace vsockio
 			return false;
 		}
 
+        if (!_connected) return false;
+
 		if (_inputClosed) return false;
 
         if (_peer->queueFull()) return false;

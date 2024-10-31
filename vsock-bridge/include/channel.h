@@ -59,5 +59,12 @@ namespace vsockio
 		{
 			return _a->closed() && _b->closed();
 		}
+
+        Socket& getSocket(int fd) const
+        {
+            if (fd == _a->fd()) return *_a;
+            if (fd == _b->fd()) return *_b;
+            throw std::runtime_error("unexpected fd for channel");
+        }
 	};
 }
