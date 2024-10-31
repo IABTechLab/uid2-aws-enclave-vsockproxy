@@ -71,7 +71,7 @@ namespace vsockio
             auto* channel = handle->_channel;
             _readyChannels.insert(channel);
 
-            Socket& s = channel->getSocket(_events[i].fd);
+            Socket& s = channel->getSocket(handle->_fd);
             if ((_events[i].ioFlags & IOEvent::OutputReady) && !s.connected())
             {
                 s.onConnected();
