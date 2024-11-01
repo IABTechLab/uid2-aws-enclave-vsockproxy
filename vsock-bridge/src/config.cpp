@@ -17,13 +17,7 @@ namespace vsockproxy
 		socks-proxy:
 		  service: socks
 		  listen: vsock://-1:3305
-
-		file-server:
-		  service: file
-		  listen: vsock://-1:3306
-		  mapping:
-			- config:/etc/uidoperator/config.json
-			- secrets:/etc/uidoperator/secrets.json
+		  connect: tcp://127.0.0.1:3306
 
 		operator-service:
 		  service: direct
@@ -40,7 +34,6 @@ namespace vsockproxy
 	struct YamlLine
 	{
 		bool _isEmpty;
-		bool _isComment;
 		bool _isListElement;
 		int _level;
 		std::string _key;
@@ -93,12 +86,10 @@ namespace vsockproxy
 	{
         YamlLine y;
 		y._isEmpty = true;
-		y._isComment = false;
 		y._isListElement = false;
 		for (std::string line; std::getline(s, line); )
 		{
 			y._isEmpty = true;
-			y._isComment = false;
 			y._isListElement = false;
 
 			if (line == "---") continue;
@@ -117,7 +108,6 @@ namespace vsockproxy
 						y._level = i;
 						if (line[i] == '#')
 						{
-							y._isComment = true;
 							break;
 						}
 						else if (line[i] == '-')
@@ -158,7 +148,7 @@ namespace vsockproxy
 		return y;
 	}
 
-    static std::optional<EndpointConfig> tryparseEndpoint(const std::string& value)
+    static std::optional<EndpointConfig> tryParseEndpoint(const std::string& value)
 	{
         EndpointConfig endpointConfig;
 		size_t p = value.find(':');
@@ -248,7 +238,7 @@ namespace vsockproxy
 					}
 					else if (line._key == "listen")
 					{
-						const auto endpoint = tryparseEndpoint(line._value);
+						const auto endpoint = tryParseEndpoint(line._value);
                         if (!endpoint)
                         {
                             Logger::instance->Log(Logger::CRITICAL, "failed to parse listen endpoint config: ", line._value, " for service: ", cs._name);
@@ -258,13 +248,13 @@ namespace vsockproxy
 					}
 					else if (line._key == "connect")
 					{
-                        const auto endpoint = tryparseEndpoint(line._value);
+                        const auto endpoint = tryParseEndpoint(line._value);
                         if (!endpoint)
                         {
                             Logger::instance->Log(Logger::CRITICAL, "failed to parse connect endpoint config: ", line._value, " for service: ", cs._name);
                             return {};
                         }
-                        cs._listenEndpoint = *endpoint;
+                        cs._connectEndpoint = *endpoint;
 					}
 				}
 			}

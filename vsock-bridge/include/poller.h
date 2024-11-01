@@ -18,6 +18,7 @@ namespace vsockio
 
 		int maxEventsPerPoll() const { return _maxEvents; }
 
+    protected:
 		int _maxEvents;
 	};
 

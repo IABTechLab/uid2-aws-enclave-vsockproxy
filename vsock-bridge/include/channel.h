@@ -28,16 +28,14 @@ namespace vsockio
 		using TAction = std::function<void()>;
 
 		int _id;
-		IOThread& _ioThread;
 
 		std::unique_ptr<Socket> _a;
 		std::unique_ptr<Socket> _b;
 		ChannelHandle _ha;
 		ChannelHandle _hb;
 		
-		DirectChannel(int id, std::unique_ptr<Socket> a, std::unique_ptr<Socket> b, IOThread& ioThread)
+		DirectChannel(int id, std::unique_ptr<Socket> a, std::unique_ptr<Socket> b)
 			: _id(id)
-            , _ioThread(ioThread)
 			, _a(std::move(a))
 			, _b(std::move(b))
 			, _ha(this, _id, _a->fd())

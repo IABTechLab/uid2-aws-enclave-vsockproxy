@@ -46,7 +46,7 @@ namespace vsockio
 
 		void consume(int size)
 		{
-            assert(remainingData() >= size);
+            assert(remainingDataSize() >= size);
 			_head += size;
 		}
 

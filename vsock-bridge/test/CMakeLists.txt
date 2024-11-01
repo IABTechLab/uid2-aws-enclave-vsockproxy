@@ -4,7 +4,12 @@ include_directories (tests
 	${CMAKE_CURRENT_SOURCE_DIR}/../include
 )
 
-add_executable (tests testmain.cpp)
+add_executable (tests
+		testmain.cpp
+		test_buffer.cpp
+		test_socket.cpp
+		test_threading.cpp
+)
 
 target_link_libraries (tests vsock-io pthread)
 

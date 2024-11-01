@@ -7,11 +7,6 @@ namespace vsockio
         _pendingChannels.enqueue({std::move(ap), std::move(bp)});
     }
 
-    void IOThread::terminateChannel(DirectChannel* channel)
-    {
-        _terminatedChannels.insert(channel);
-    }
-
     void IOThread::run()
     {
         while (!_terminateFlag.load(std::memory_order_relaxed))
@@ -42,7 +37,7 @@ namespace vsockio
         thread_local static int channelId = 0;
 
         Logger::instance->Log(Logger::DEBUG, "iothread id=", id(), " creating channel id=", channelId, ", a.fd=", pendingChannel._ap->fd(), ", b.fd=", pendingChannel._bp->fd());
-        auto channel = std::make_unique<DirectChannel>(channelId, std::move(pendingChannel._ap), std::move(pendingChannel._bp), *this);
+        auto channel = std::make_unique<DirectChannel>(channelId, std::move(pendingChannel._ap), std::move(pendingChannel._bp));
         ++channelId;
 
         channel->_a->setPoller(_poller.get());

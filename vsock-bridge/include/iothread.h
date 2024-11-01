@@ -38,7 +38,6 @@ namespace vsockio
         size_t id() const { return _id; }
 
         void addChannel(std::unique_ptr<Socket>&& ap, std::unique_ptr<Socket>&& bp);
-        void terminateChannel(DirectChannel* channel);
 
     private:
         struct PendingChannel
