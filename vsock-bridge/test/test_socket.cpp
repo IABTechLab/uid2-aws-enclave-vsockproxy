@@ -165,7 +165,7 @@ SCENARIO("DirectChannel between connected sockets")
         }
     }
 
-    GIVEN("Full write queue on one of the sockets")
+    GIVEN("Write queue is full on one of the sockets")
     {
         saImpl.read = mockIoSuccessOnce(Buffer::BUFFER_SIZE);
         channel.performIO();
@@ -198,6 +198,24 @@ SCENARIO("DirectChannel between connected sockets")
             REQUIRE(channel.canReadWriteMore());
             REQUIRE(sa.canReadWriteMore());
             REQUIRE(!sb.canReadWriteMore());
+        }
+    }
+
+    GIVEN("Socket writes out full buffer of data")
+    {
+        saImpl.read = mockIoSuccessOnce(Buffer::BUFFER_SIZE);
+        channel.performIO();
+        sbImpl.write = mockIoSuccessOnce(Buffer::BUFFER_SIZE);
+        channel.performIO();
+
+        THEN("Socket can write more data")
+        {
+            saImpl.read = mockIoSuccessOnce(5);
+            int bytesWritten = 0;
+            sbImpl.write = [&] (int fd, void* d, int sz) { bytesWritten = sz; return mockIoAgain(fd, d, sz); };
+            channel.performIO();
+
+            REQUIRE(bytesWritten == 5);
         }
     }
 }
@@ -253,17 +271,17 @@ SCENARIO("DirectChannel - orderly disconnects")
         saImpl.read = mockIoSuccessOnce(0);
         channel.performIO();
 
-        THEN("First socket is input closed and second socket is not affected")
+        THEN("First socket is closed and second socket is not")
         {
-            REQUIRE(!sa.closed());
+            REQUIRE(sa.closed());
             REQUIRE(!sb.closed());
 
-            AND_THEN("Second socket writes out some data and sockets are still open")
+            AND_THEN("Second socket writes out some data and remains open")
             {
                 sbImpl.write = mockIoSuccessOnce(6);
                 channel.performIO();
 
-                REQUIRE(!sa.closed());
+                REQUIRE(sa.closed());
                 REQUIRE(!sb.closed());
 
                 AND_THEN("Second socket writes out remaining data and both sockets are closed")
@@ -275,6 +293,29 @@ SCENARIO("DirectChannel - orderly disconnects")
                     REQUIRE(sb.closed());
                 }
             }
+        }
+
+        THEN("Second socket input is closed")
+        {
+            sbImpl.read = mockIoMustNotCall("sb read");
+            channel.performIO();
+
+            REQUIRE(sa.closed());
+            REQUIRE(!sb.closed());
+        }
+    }
+
+    GIVEN("A socket reports it is closed while it is writing data out")
+    {
+        saImpl.read = mockIoSuccessOnce(10);
+        channel.performIO();
+        sbImpl.read = mockIoSuccessOnce(0);
+        channel.performIO();
+
+        THEN("Both sockets are closed")
+        {
+            REQUIRE(sa.closed());
+            REQUIRE(sb.closed());
         }
     }
 }
@@ -306,6 +347,67 @@ SCENARIO("DirectChannel - error conditions")
     GIVEN("Socket read fails")
     {
         saImpl.read = mockIoError(ECONNABORTED);
+        channel.performIO();
+
+        THEN("Both sockets are closed")
+        {
+            REQUIRE(channel.canBeTerminated());
+            REQUIRE(sa.closed());
+            REQUIRE(sb.closed());
+        }
+    }
+
+    GIVEN("Second socket has data queued for writing")
+    {
+        saImpl.read = mockIoSuccessOnce(10);
+        channel.performIO();
+
+        AND_GIVEN("Reading the first second fails")
+        {
+            saImpl.read = mockIoError(ECONNABORTED);
+            channel.performIO();
+
+            THEN("Second socket enters draining mode")
+            {
+                REQUIRE(!channel.canBeTerminated());
+                REQUIRE(sa.closed());
+                REQUIRE(!sb.closed());
+
+                AND_THEN("Writes out all queued data and is closed")
+                {
+                    sbImpl.write = mockIoSuccessOnce(10);
+                    channel.performIO();
+
+                    REQUIRE(channel.canBeTerminated());
+                    REQUIRE(sa.closed());
+                    REQUIRE(sb.closed());
+                }
+            }
+        }
+    }
+
+    GIVEN("Socket write fails")
+    {
+        saImpl.read = mockIoSuccessOnce(10);
+        channel.performIO();
+        sbImpl.write = mockIoError(ECONNABORTED);
+        channel.performIO();
+
+        THEN("Both sockets are closed")
+        {
+            REQUIRE(channel.canBeTerminated());
+            REQUIRE(sa.closed());
+            REQUIRE(sb.closed());
+        }
+    }
+
+    GIVEN("Socket write fails while draining")
+    {
+        saImpl.read = mockIoSuccessOnce(10);
+        channel.performIO();
+        saImpl.read = mockIoSuccessOnce(0);
+        channel.performIO();
+        sbImpl.write = mockIoError(ECONNABORTED);
         channel.performIO();
 
         THEN("Both sockets are closed")

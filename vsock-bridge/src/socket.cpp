@@ -17,25 +17,11 @@ namespace vsockio
 
 	bool Socket::readFromInput()
 	{
-		if (_peer->outputClosed() && !inputClosed())
-		{
-			Logger::instance->Log(Logger::DEBUG, "[socket] readToInput detected output peer closed, closing input (fd=", _fd, ")");
-			closeInput();
-			return false;
-		}
-
         if (!_connected) return false;
 
 		if (_inputClosed) return false;
 
 		const bool canReadMoreData = read(_peer->buffer());
-
-		if (_inputClosed)
-		{
-			Logger::instance->Log(Logger::DEBUG, "[socket] readToInput detected input closed, closing (fd=", _fd, ")");
-			close();
-		}
-
 		return canReadMoreData;
 	}
 
@@ -84,8 +70,8 @@ namespace vsockio
         {
             // Source closed
 
-            Logger::instance->Log(Logger::DEBUG, "[socket] read returns 0, closing input (fd=", _fd, ")");
-            closeInput();
+            Logger::instance->Log(Logger::DEBUG, "[socket] read returns 0, closing (fd=", _fd, ")");
+            close();
             return false;
         }
         else if ((err = errno) == EAGAIN || err == EWOULDBLOCK)
@@ -98,8 +84,8 @@ namespace vsockio
         {
             // Error
 
-            Logger::instance->Log(Logger::WARNING, "[socket] error on read, closing input (fd=", _fd, "): ", err, ", ", strerror(err));
-            closeInput();
+            Logger::instance->Log(Logger::WARNING, "[socket] error on read, closing (fd=", _fd, "): ", err, ", ", strerror(err));
+            close();
             return false;
         }
 	}
@@ -191,6 +177,7 @@ namespace vsockio
 		if (!closed())
 		{
 			Logger::instance->Log(Logger::DEBUG, "[socket] onPeerClosed draining socket (fd=", _fd, ")");
+            closeInput();
 
 			// force process the output queue
 			writeToOutput();
