@@ -65,9 +65,9 @@ namespace vsockio
             _readyChannels.insert(channel);
 
             Socket& s = channel->getSocket(handle->_fd);
-            if ((_events[i].ioFlags & IOEvent::OutputReady) && !s.connected())
+            if ((_events[i].ioFlags & (IOEvent::OutputReady | IOEvent::Error)) && !s.connected())
             {
-                s.onConnected();
+                s.checkConnected();
             }
         }
     }
@@ -83,7 +83,7 @@ namespace vsockio
         {
             auto* channel = *it;
             channel->performIO();
-            if (!channel->hasPendingIO())
+            if (!channel->canReadWriteMore())
             {
                 it = _readyChannels.erase(it);
             }

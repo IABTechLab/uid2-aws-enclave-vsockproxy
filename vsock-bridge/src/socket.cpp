@@ -28,8 +28,6 @@ namespace vsockio
 
 		if (_inputClosed) return false;
 
-        if (_peer->hasQueuedData()) return false;
-
 		const bool canReadMoreData = read(_peer->buffer());
 
 		if (_inputClosed)
@@ -120,7 +118,7 @@ namespace vsockio
 				// Some data written to downstream
 				// log bytes written and move cursor forward
 
-				//Logger::instance->Log(Logger::DEBUG, "[socket] write returns ", bytesWritten, " (fd=", _fd, ")");
+				Logger::instance->Log(Logger::DEBUG, "[socket] write returns ", bytesWritten, " (fd=", _fd, ")");
 				buffer.consume(bytesWritten);
                 canSendModeData = true;
 			}
@@ -141,6 +139,23 @@ namespace vsockio
 
         return canSendModeData;
 	}
+
+    void Socket::checkConnected()
+    {
+        char c;
+        const int bytesWritten = _impl.write(_fd, &c, 0);
+        int err = errno;
+        if (bytesWritten == 0)
+        {
+            _connected = true;
+            Logger::instance->Log(Logger::WARNING, "[socket] connected (fd=", _fd, ")");
+        }
+        else if (err != EAGAIN && err != EWOULDBLOCK)
+        {
+            Logger::instance->Log(Logger::WARNING, "[socket] connection error, closing (fd=", _fd, "): ", err, ", ", strerror(err));
+            close();
+        }
+    }
 
 	void Socket::closeInput()
 	{

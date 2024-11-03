@@ -48,9 +48,9 @@ namespace vsockio
 
         void performIO();
 
-        bool hasPendingIO() const
+        bool canReadWriteMore() const
         {
-            return _a->hasPendingIO() || _b->hasPendingIO();
+            return _a->canReadWriteMore() || _b->canReadWriteMore();
         }
 
 		bool canBeTerminated() const

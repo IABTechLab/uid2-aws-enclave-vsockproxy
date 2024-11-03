@@ -180,6 +180,8 @@ namespace vsockio
 				return;
 			}
 
+            inPeer->onConnected();
+
 			Logger::instance->Log(Logger::DEBUG, "Dispatcher will handle channel for accepted connection fd=", inPeer->fd(), ", peer fd=", outPeer->fd());
             _dispatcher.addChannel(std::move(inPeer), std::move(outPeer));
 		}

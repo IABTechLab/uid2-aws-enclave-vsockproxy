@@ -23,7 +23,7 @@ namespace vsockio
 			std::function<int(int, void*, int)> readImpl,
 			std::function<int(int, void*, int)> writeImpl,
 			std::function<int(int)> closeImpl
-		) : 
+		) :
 			read(readImpl), 
 			write(writeImpl), 
 			close(closeImpl) {}
@@ -42,13 +42,13 @@ namespace vsockio
         void readInput()
         {
             assert(_peer != nullptr);
-            _inputReady = readFromInput();
+            _canReadMore = readFromInput();
         }
 
         void writeOutput()
         {
             assert(_peer != nullptr);
-            _outputReady = writeToOutput();
+            _canWriteMore = writeToOutput();
         }
 
         inline void setPeer(Socket* p)
@@ -65,10 +65,11 @@ namespace vsockio
 
         bool connected() const { return _connected; }
         void onConnected() { _connected = true; }
+        void checkConnected();
 
         bool closed() const { return _inputClosed && _outputClosed; }
 
-        bool hasPendingIO() const { return (_inputReady || _outputReady) && !closed(); }
+        bool canReadWriteMore() const { return (_canReadMore || _canWriteMore) && !closed(); }
 
     private:
 		bool readFromInput();
@@ -90,8 +91,8 @@ namespace vsockio
 
     private:
 		SocketImpl& _impl;
-        bool _inputReady = false;
-        bool _outputReady = false;
+        bool _canReadMore = false;
+        bool _canWriteMore = false;
         bool _inputClosed = false;
         bool _outputClosed = false;
         Socket* _peer;
