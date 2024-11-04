@@ -9,7 +9,6 @@ namespace vsockproxy
 	enum class ServiceType : uint8_t
 	{
 		UNKNOWN = 0,
-		SOCKS_PROXY,
 		DIRECT_PROXY,
 	};
 

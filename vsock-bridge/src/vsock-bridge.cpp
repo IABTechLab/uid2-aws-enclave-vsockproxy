@@ -91,12 +91,11 @@ static void startServices(const std::vector<ServiceDescription>& services, int n
 static void showHelp()
 {
     std::cout
-        << "usage: vsockpx -c <config-file> [-d] [--log-level [0-3]] [--num-threads n] [--iothreads n] [...]\n"
+        << "usage: vsockpx -c <config-file> [-d] [--log-level n] [--workers n] [...]\n"
         << "  -c/--config: path to configuration file\n"
         << "  -d/--daemon: running in daemon mode\n"
-        << "  --log-level: log level, 0=debug, 1=info, 2=warning, 3=error, 4=critical\n"
-        << "  --iothreads: number of io threads, positive integer\n"
-        << "  --workers: number of worker threads, positive integer\n"
+        << "  --log-level: log level, 0=debug, 1=info, 2=warning, 3=error, 4=critical (default: info)\n"
+        << "  --workers: number of IO worker threads, positive integer (default: 1)\n"
         << std::flush;
 }
 

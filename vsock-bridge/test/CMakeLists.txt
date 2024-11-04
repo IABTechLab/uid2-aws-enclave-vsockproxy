@@ -7,7 +7,7 @@ include_directories (tests
 add_executable (tests
 		testmain.cpp
 		test_buffer.cpp
-		test_socket.cpp
+		test_channel.cpp
 		test_threading.cpp
 )
 

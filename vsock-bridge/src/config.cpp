@@ -45,7 +45,6 @@ namespace vsockproxy
 		switch (t)
 		{
 		case ServiceType::DIRECT_PROXY: return "direct";
-		case ServiceType::SOCKS_PROXY: return "socks";
 		default: return "unknown";
 		}
 	}
@@ -226,9 +225,7 @@ namespace vsockproxy
 				{
 					if (line._key == "service")
 					{
-						if (line._value == "socks")
-							cs._type = ServiceType::SOCKS_PROXY;
-						else if (line._value == "direct")
+						if (line._value == "direct")
 							cs._type = ServiceType::DIRECT_PROXY;
 						else
                         {
