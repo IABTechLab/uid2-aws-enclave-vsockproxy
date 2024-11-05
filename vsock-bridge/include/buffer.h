@@ -8,7 +8,7 @@ namespace vsockio
 {
 	struct Buffer
 	{
-        static constexpr int BUFFER_SIZE = 10240;
+        static constexpr int BUFFER_SIZE = 4096;
         std::array<std::uint8_t, BUFFER_SIZE> _data;
         std::uint8_t* _head = _data.data();
         std::uint8_t* _tail = _data.data();
