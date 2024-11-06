@@ -60,25 +60,23 @@ namespace vsockproxy
 	}
 
 
-    static std::optional<uint16_t> tryStr2Short(const std::string& s)
+    static std::optional<uint16_t> trystrtous(const std::string& s)
 	{
 		if (s.empty()) return std::nullopt;
 
-		uint16_t value = 0;
-		for (int i = 0; i < s.size(); i++)
-		{
-			if (s[i] >= '0' && s[i] <= '9')
-			{
-				value *= 10;
-				value += s[i] - '0';
-			}
-			else
-			{
-				return std::nullopt;
-			}
-		}
-
-		return value;
+        try
+        {
+            const auto result = std::stoul(s);
+            if (result > std::numeric_limits<uint16_t>::max())
+            {
+                return std::nullopt;
+            }
+            return static_cast<uint16_t>(result);
+        }
+        catch (...)
+        {
+            return std::nullopt;
+        }
 	}
 
     static YamlLine nextLine(std::ifstream& s)
@@ -169,7 +167,7 @@ namespace vsockproxy
 		if (p2 != value.npos)
 		{
             endpointConfig._address = value.substr(p, p2 - p);
-            const auto port = tryStr2Short(value.substr(p2 + 1));
+            const auto port = trystrtous(value.substr(p2 + 1));
             if (!port)
             {
                 Logger::instance->Log(Logger::CRITICAL, "invalid port number: ", value.substr(p2 + 1));

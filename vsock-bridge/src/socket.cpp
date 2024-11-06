@@ -8,31 +8,31 @@
 
 namespace vsockio
 {
-	Socket::Socket(int fd, SocketImpl& impl)
-		: _fd(fd)
-		, _impl(impl)
-	{
-		assert(_fd >= 0);
-	}
+    Socket::Socket(int fd, SocketImpl& impl)
+        : _fd(fd)
+        , _impl(impl)
+    {
+        assert(_fd >= 0);
+    }
 
-	bool Socket::readFromInput()
-	{
+    bool Socket::readFromInput()
+    {
         if (!_connected) return false;
 
-		if (_inputClosed) return false;
+        if (_inputClosed) return false;
 
-		const bool canReadMoreData = read(_peer->buffer());
-		return canReadMoreData;
-	}
+        const bool canReadMoreData = read(_peer->buffer());
+        return canReadMoreData;
+    }
 
-	bool Socket::writeToOutput()
-	{
+    bool Socket::writeToOutput()
+    {
         if (!_connected) return false;
 
-		if (_outputClosed) return false;
+        if (_outputClosed) return false;
 
         bool canSendModeData = false;
-		if (!_outputClosed) {
+        if (!_outputClosed) {
             if (!_buffer.consumed()) {
                 canSendModeData = send(_buffer);
                 if (_buffer.consumed())
@@ -42,17 +42,17 @@ namespace vsockio
             }
         }
 
-		if (_peer->closed() && _buffer.consumed())
-		{
+        if (_peer->closed() && _buffer.consumed())
+        {
             Logger::instance->Log(Logger::DEBUG, "[socket] writeToOutput finished draining socket, closing (fd=", _fd, ")");
             close();
-		}
+        }
 
-		return canSendModeData;
-	}
+        return canSendModeData;
+    }
 
-	bool Socket::read(Buffer& buffer)
-	{
+    bool Socket::read(Buffer& buffer)
+    {
         if (!buffer.hasRemainingCapacity()) return false;
 
         PERF_LOG("read");
@@ -88,43 +88,43 @@ namespace vsockio
             close();
             return false;
         }
-	}
+    }
 
-	bool Socket::send(Buffer& buffer)
-	{
-        bool canSendModeData = false;
-		while (!buffer.consumed())
-		{
+    bool Socket::send(Buffer& buffer)
+    {
+        if (buffer.consumed()) return false;
+
+        do
+        {
             PERF_LOG("send");
-			const int bytesWritten = _impl.write(_fd, buffer.head(), buffer.remainingDataSize());
+            const int bytesWritten = _impl.write(_fd, buffer.head(), buffer.remainingDataSize());
 
-			int err = 0;
-			if (bytesWritten > 0)
-			{
-				// Some data written to downstream
-				// log bytes written and move cursor forward
+            int err = 0;
+            if (bytesWritten > 0)
+            {
+                // Some data written to downstream
+                // log bytes written and move cursor forward
 
-				//Logger::instance->Log(Logger::DEBUG, "[socket] write returns ", bytesWritten, " (fd=", _fd, ")");
-				buffer.consume(bytesWritten);
-                canSendModeData = true;
-			}
-			else if((err = errno) == EAGAIN || err == EWOULDBLOCK)
-			{
-				// Write blocked
-				return false;
-			}
-			else
-			{
-				// Error
+                //Logger::instance->Log(Logger::DEBUG, "[socket] write returns ", bytesWritten, " (fd=", _fd, ")");
+                buffer.consume(bytesWritten);
+            }
+            else if((err = errno) == EAGAIN || err == EWOULDBLOCK)
+            {
+                // Write blocked
+                return false;
+            }
+            else
+            {
+                // Error
 
-				Logger::instance->Log(Logger::WARNING, "[socket] error on send, closing (fd=", _fd, "): ", strerror(err));
-				close();
-				return false;
-			}
-		}
+                Logger::instance->Log(Logger::WARNING, "[socket] error on send, closing (fd=", _fd, "): ", strerror(err));
+                close();
+                return false;
+            }
+        } while (!buffer.consumed());
 
-        return canSendModeData;
-	}
+        return true;
+    }
 
     void Socket::checkConnected()
     {
@@ -143,44 +143,44 @@ namespace vsockio
         }
     }
 
-	void Socket::closeInput()
-	{
-		_inputClosed = true;
-	}
+    void Socket::closeInput()
+    {
+        _inputClosed = true;
+    }
 
-	void Socket::close()
-	{
-		if (!closed())
-		{
-			_inputClosed = true;
-			_outputClosed = true;
+    void Socket::close()
+    {
+        if (!closed())
+        {
+            _inputClosed = true;
+            _outputClosed = true;
 
-			if (_poller)
-			{
-				// epoll is meant to automatically deregister sockets on close, but apparently some systems
-				// have bugs around this, so do it explicitly
-				Logger::instance->Log(Logger::DEBUG, "[socket] remove from poller (fd=", _fd, ")");
-				_poller->remove(_fd);
-			}
+            if (_poller)
+            {
+                // epoll is meant to automatically deregister sockets on close, but apparently some systems
+                // have bugs around this, so do it explicitly
+                Logger::instance->Log(Logger::DEBUG, "[socket] remove from poller (fd=", _fd, ")");
+                _poller->remove(_fd);
+            }
 
-			Logger::instance->Log(Logger::DEBUG, "[socket] close, fd=", _fd);
-			_impl.close(_fd);
-			if (_peer != nullptr)
-			{
-				_peer->onPeerClosed();
-			}
-		}
-	}
+            Logger::instance->Log(Logger::DEBUG, "[socket] close, fd=", _fd);
+            _impl.close(_fd);
+            if (_peer != nullptr)
+            {
+                _peer->onPeerClosed();
+            }
+        }
+    }
 
-	void Socket::onPeerClosed()
-	{
-		if (!closed())
-		{
-			Logger::instance->Log(Logger::DEBUG, "[socket] onPeerClosed draining socket (fd=", _fd, ")");
+    void Socket::onPeerClosed()
+    {
+        if (!closed())
+        {
+            Logger::instance->Log(Logger::DEBUG, "[socket] onPeerClosed draining socket (fd=", _fd, ")");
             closeInput();
 
-			// force process the output queue
-			writeToOutput();
+            // force process the output queue
+            writeToOutput();
 
             if (_peer->hasQueuedData())
             {
@@ -189,20 +189,20 @@ namespace vsockio
                 Logger::instance->Log(Logger::DEBUG, "[socket] onPeerClosed detected input peer is closed while having data remaining, closing (fd=", _fd, ")");
                 close();
             }
-		}
-	}
+        }
+    }
 
-	Socket::~Socket()
-	{
-		if (!closed())
-		{
-			Logger::instance->Log(Logger::WARNING, "[socket] closing on destruction (fd=", _fd, ")");
-			close();
-		}
+    Socket::~Socket()
+    {
+        if (!closed())
+        {
+            Logger::instance->Log(Logger::WARNING, "[socket] closing on destruction (fd=", _fd, ")");
+            close();
+        }
 
-		if (_peer != nullptr)
-		{
-			_peer->setPeer(nullptr);
-		}
-	}
+        if (_peer != nullptr)
+        {
+            _peer->setPeer(nullptr);
+        }
+    }
 }

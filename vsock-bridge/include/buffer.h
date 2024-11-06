@@ -8,6 +8,7 @@ namespace vsockio
 {
 	struct Buffer
 	{
+        // Use the default minimum socket send buffer size on Linux.
         static constexpr int BUFFER_SIZE = 4096;
         std::array<std::uint8_t, BUFFER_SIZE> _data;
         std::uint8_t* _head = _data.data();
