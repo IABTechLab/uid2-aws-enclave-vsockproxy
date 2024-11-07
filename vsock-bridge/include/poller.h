@@ -2,13 +2,15 @@
 
 #include "eventdef.h"
 
+#include <memory>
+
 namespace vsockio
 {
 	struct Poller
 	{
-		virtual bool add(int fd, void* handler, uint32_t events) = 0;
+        virtual ~Poller() = default;
 
-		virtual bool update(int fd, void* handler, uint32_t events) = 0;
+		virtual bool add(int fd, void* handler) = 0;
 
 		virtual void remove(int fd) = 0;
 
@@ -16,6 +18,14 @@ namespace vsockio
 
 		int maxEventsPerPoll() const { return _maxEvents; }
 
+    protected:
 		int _maxEvents;
 	};
+
+    struct PollerFactory
+    {
+        virtual ~PollerFactory() = default;
+
+        virtual std::unique_ptr<Poller> createPoller() = 0;
+    };
 }

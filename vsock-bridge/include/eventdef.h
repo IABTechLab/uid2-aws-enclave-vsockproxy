@@ -15,7 +15,6 @@ namespace vsockio
 	struct VsbEvent
 	{
 		IOEvent ioFlags;
-		int fd;
 		void* data;
 	};
 }

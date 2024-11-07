@@ -70,14 +70,13 @@ namespace vsockio
         const int MAX_POLLER_EVENTS = 256;
         const int SO_BACKLOG = 64;
 
-        Listener(std::unique_ptr<Endpoint>&& listenEndpoint, std::unique_ptr<Endpoint>&& connectEndpoint, std::vector<Dispatcher*>& dispatchers)
+        Listener(std::unique_ptr<Endpoint>&& listenEndpoint, std::unique_ptr<Endpoint>&& connectEndpoint, Dispatcher& dispatcher)
             : _fd(-1)
             , _listenEp(std::move(listenEndpoint))
             , _connectEp(std::move(connectEndpoint))
             , _events(new VsbEvent[MAX_POLLER_EVENTS])
             , _listenEpClone(_listenEp->clone())
-            , _dispatchers(dispatchers)
-            , _dispatcherIdRr(0)
+            , _dispatcher(dispatcher)
         {
 			const int fd = _listenEp->getSocket();
 			if (fd < 0)
@@ -181,12 +180,10 @@ namespace vsockio
 				return;
 			}
 
+            inPeer->onConnected();
 
-            const int dpId = (_dispatcherIdRr++) % _dispatchers.size();
-            auto* const dp = _dispatchers[dpId];
-
-			Logger::instance->Log(Logger::DEBUG, "Dispatcher ", dpId, " will handle channel for accepted connection fd=", inPeer->fd(), ", peer fd=", outPeer->fd());
-			dp->postAddChannel(std::move(inPeer), std::move(outPeer));
+			Logger::instance->Log(Logger::DEBUG, "Dispatcher will handle channel for accepted connection fd=", inPeer->fd(), ", peer fd=", outPeer->fd());
+            _dispatcher.addChannel(std::move(inPeer), std::move(outPeer));
 		}
 
         std::unique_ptr<Socket> connectToPeer()
@@ -214,10 +211,16 @@ namespace vsockio
 
             auto addrAndLen = _connectEp->getAddress();
             int status = connect(fd, addrAndLen.first, addrAndLen.second);
-            if (status == 0 || (status = errno) == EINPROGRESS)
+            if (status == 0)
             {
+                peer->onConnected();
                 Logger::instance->Log(Logger::DEBUG, "connected to remote endpoint (fd=", fd, ") with status=", status);
 				return peer;
+            }
+            if ((status = errno) == EINPROGRESS)
+            {
+                Logger::instance->Log(Logger::DEBUG, "connection to remote endpoint (fd=", fd, ") in progress");
+                return peer;
             }
             else
             {
@@ -233,7 +236,6 @@ namespace vsockio
         std::unique_ptr<Endpoint> _listenEpClone;
         std::unique_ptr<Endpoint> _connectEp;
         std::unique_ptr<VsbEvent[]> _events;
-        std::vector<Dispatcher*>& _dispatchers;
-        uint32_t _dispatcherIdRr;
+        Dispatcher& _dispatcher;
     };
 }

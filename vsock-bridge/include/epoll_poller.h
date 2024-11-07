@@ -27,32 +27,16 @@ namespace vsockio
 			}
 		}
 
-		bool add(int fd, void* handler, uint32_t events) override
+		bool add(int fd, void* handler) override
 		{
 			epoll_event ev;
 			memset(&ev, 0, sizeof(epoll_event));
 			ev.data.ptr = handler;
-			ev.events = vsb2epoll(events);
+			ev.events = EPOLLET | EPOLLIN | EPOLLOUT | EPOLLRDHUP;
 			if (epoll_ctl(_epollFd, EPOLL_CTL_ADD, fd, &ev) != 0)
 			{
 				const int err = errno;
 				Logger::instance->Log(Logger::ERROR, "epoll_ctl failed to add fd=", fd, ": ", strerror(err));
-				return false;
-			}
-
-			return true;
-		}
-
-		bool update(int fd, void* handler, uint32_t events) override
-		{
-			epoll_event ev;
-			memset(&ev, 0, sizeof(epoll_event));
-			ev.data.ptr = handler;
-			ev.events = vsb2epoll(events);
-			if (epoll_ctl(_epollFd, EPOLL_CTL_MOD, fd, &ev) != 0)
-			{
-				const int err = errno;
-				Logger::instance->Log(Logger::ERROR, "epoll_ctl failed to update fd=", fd, ": ", strerror(err));
 				return false;
 			}
 
@@ -71,6 +55,7 @@ namespace vsockio
 
 		int poll(VsbEvent* outEvents, int timeout) override
 		{
+            PERF_LOG("poll");
 			int eventCount = epoll_wait(_epollFd, _epollEvents.get(), _maxEvents, timeout);
 
 			if (eventCount == -1)
@@ -87,7 +72,7 @@ namespace vsockio
 				// and leave the list of events to main processing thread
 
 				outEvents[i].ioFlags = IOEvent::None;
-				if ((_epollEvents[i].events & EPOLLERR) || (_epollEvents[i].events & EPOLLHUP))
+				if ((_epollEvents[i].events & EPOLLERR) || (_epollEvents[i].events & EPOLLHUP) || (_epollEvents[i].events & EPOLLRDHUP))
 				{
 					outEvents[i].ioFlags = static_cast<IOEvent>(outEvents[i].ioFlags | IOEvent::Error);
 				}
@@ -105,22 +90,17 @@ namespace vsockio
 
 			return eventCount;
 		}
-
-		inline uint32_t vsb2epoll(uint32_t vsbEvent) const
-		{
-			uint32_t evts = EPOLLET;
-
-			if (vsbEvent & IOEvent::InputReady)
-			{
-				evts = evts | EPOLLIN;
-			}
-
-			if (vsbEvent & IOEvent::OutputReady)
-			{
-				evts = evts | EPOLLOUT;
-			}
-
-			return evts;
-		}
 	};
+
+    struct EpollPollerFactory : PollerFactory
+    {
+        int _maxEvents;
+
+        explicit EpollPollerFactory(int maxEvents) : _maxEvents(maxEvents) {}
+
+        std::unique_ptr<Poller> createPoller() override
+        {
+            return std::make_unique<EpollPoller>(_maxEvents);
+        }
+    };
 }
