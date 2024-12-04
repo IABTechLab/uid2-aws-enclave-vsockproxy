@@ -70,7 +70,8 @@ namespace vsockio
         const int MAX_POLLER_EVENTS = 256;
         const int SO_BACKLOG = 64;
 
-        Listener(std::unique_ptr<Endpoint>&& listenEndpoint, std::unique_ptr<Endpoint>&& connectEndpoint, Dispatcher& dispatcher)
+        Listener(std::unique_ptr<Endpoint>&& listenEndpoint, std::unique_ptr<Endpoint>&& connectEndpoint, Dispatcher& dispatcher,
+                 int SNDBUF, int RCVBUF)
             : _fd(-1)
             , _listenEp(std::move(listenEndpoint))
             , _connectEp(std::move(connectEndpoint))
@@ -89,6 +90,18 @@ namespace vsockio
             {
 				close(fd);
 				throw std::runtime_error("error setting SO_REUSEADDR");
+            }
+
+            if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &SNDBUF, sizeof(int)) < 0)
+            {
+                close(fd);
+                throw std::runtime_error("error setting SO_SNDBUF");
+            }
+
+            if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &RCVBUF, sizeof(int)) < 0)
+            {
+                close(fd);
+                throw std::runtime_error("error setting SO_RCVBUF");
             }
 
             std::pair<const sockaddr*, socklen_t> addressAndLen = _listenEp->getAddress();
