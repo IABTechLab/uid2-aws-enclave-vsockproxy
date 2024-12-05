@@ -68,10 +68,10 @@ static void startServices(const std::vector<ServiceDescription>& services, int n
             /*inPort:*/     sd._listenEndpoint._port,
             /*outScheme:*/  sd._connectEndpoint._scheme,
             /*outAddress:*/ sd._connectEndpoint._address,
-                            _acceptRcvBuf,
-                            _acceptSndBuf,
-                            _peerRcvBuf,
-                            _peerSndBuf,
+                            sd._acceptRcvBuf,
+                            sd._acceptSndBuf,
+                            sd._peerRcvBuf,
+                            sd._peerSndBuf,
         );
 
         if (!listener)
