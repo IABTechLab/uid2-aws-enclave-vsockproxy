@@ -70,8 +70,12 @@ namespace vsockio
         const int MAX_POLLER_EVENTS = 256;
         const int SO_BACKLOG = 64;
 
-        Listener(std::unique_ptr<Endpoint>&& listenEndpoint, std::unique_ptr<Endpoint>&& connectEndpoint, Dispatcher& dispatcher)
+        Listener(std::unique_ptr<Endpoint>&& listenEndpoint, std::unique_ptr<Endpoint>&& connectEndpoint, Dispatcher& dispatcher, int acceptRcvBuf, int acceptSndBuf, int peerRcvBuf, int peerSndBuf)
             : _fd(-1)
+            , _acceptRcvBuf(acceptRcvBuf)
+            , _acceptSndBuf(acceptSndBuf)
+            , _peerRcvBuf(peerRcvBuf)
+            , _peerSndBuf(peerSndBuf)
             , _listenEp(std::move(listenEndpoint))
             , _connectEp(std::move(connectEndpoint))
             , _events(new VsbEvent[MAX_POLLER_EVENTS])
@@ -174,6 +178,18 @@ namespace vsockio
                 return;
             }
 
+            if (setsockopt(clientFd, SOL_SOCKET, SO_RCVBUF, &_acceptRcvBuf, sizeof(int)) < 0)
+            {
+                close(clientFd);
+                throw std::runtime_error("error setting _acceptRcvBuf to SO_RCVBUF");
+            }
+
+            if (setsockopt(clientFd, SOL_SOCKET, SO_SNDBUF, &_acceptSndBuf, sizeof(int)) < 0)
+            {
+                close(clientFd);
+                throw std::runtime_error("error setting _acceptSndBuf to SO_SNDBUF");
+            }
+
             auto outPeer = connectToPeer();
 			if (!outPeer)
 			{
@@ -209,6 +225,18 @@ namespace vsockio
                 return nullptr;
             }
 
+            if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &_peerRcvBuf, sizeof(int)) < 0)
+            {
+                close(fd);
+                throw std::runtime_error("error setting _peerRcvBuf to SO_RCVBUF");
+            }
+
+            if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &_peerSndBuf, sizeof(int)) < 0)
+            {
+                close(fd);
+                throw std::runtime_error("error setting _peerSndBuf to SO_SNDBUF");
+            }
+
             auto addrAndLen = _connectEp->getAddress();
             int status = connect(fd, addrAndLen.first, addrAndLen.second);
             if (status == 0)
@@ -232,6 +260,10 @@ namespace vsockio
         inline bool listening() const { return _fd >= 0; }
 
         int _fd;
+		int _acceptRcvBuf;
+		int _acceptSndBuf;
+		int _peerRcvBuf;
+		int _peerSndBuf;
         std::unique_ptr<Endpoint> _listenEp;
         std::unique_ptr<Endpoint> _listenEpClone;
         std::unique_ptr<Endpoint> _connectEp;
