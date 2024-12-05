@@ -177,12 +177,6 @@ namespace vsockio
                 return;
             }
 
-            if (setsockopt(clientFd, SOL_SOCKET, SO_SNDBUF, &_sndbuf, sizeof(int)) < 0)
-            {
-                close(clientFd);
-                throw std::runtime_error("error setting SO_SNDBUF");
-            }
-
             if (setsockopt(clientFd, SOL_SOCKET, SO_RCVBUF, &_rcvbuf, sizeof(int)) < 0)
             {
                 close(clientFd);
@@ -228,12 +222,6 @@ namespace vsockio
             {
                 close(fd);
                 throw std::runtime_error("error setting SO_SNDBUF");
-            }
-
-            if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &_rcvbuf, sizeof(int)) < 0)
-            {
-                close(fd);
-                throw std::runtime_error("error setting SO_RCVBUF");
             }
 
             auto addrAndLen = _connectEp->getAddress();
