@@ -27,7 +27,8 @@ static std::unique_ptr<Endpoint> createEndpoint(EndpointScheme scheme, const std
     }
 }
 
-static std::unique_ptr<Listener> createListener(Dispatcher& dispatcher, EndpointScheme inScheme, const std::string& inAddress, uint16_t inPort, EndpointScheme outScheme, const std::string& outAddress, uint16_t outPort)
+static std::unique_ptr<Listener> createListener(Dispatcher& dispatcher, EndpointScheme inScheme, const std::string& inAddress, uint16_t inPort, EndpointScheme outScheme,
+                                                const std::string& outAddress, uint16_t outPort, int SNDBUF, int RCVBUF)
 {
     auto listenEp { createEndpoint(inScheme, inAddress, inPort) };
     auto connectEp{ createEndpoint(outScheme, outAddress, outPort) };
@@ -44,7 +45,7 @@ static std::unique_ptr<Listener> createListener(Dispatcher& dispatcher, Endpoint
     }
     else
     {
-        return std::make_unique<Listener>(std::move(listenEp), std::move(connectEp), dispatcher);
+        return std::make_unique<Listener>(std::move(listenEp), std::move(connectEp), dispatcher, SNDBUF, RCVBUF);
     }
 }
 
@@ -68,7 +69,9 @@ static void startServices(const std::vector<ServiceDescription>& services, int n
             /*inPort:*/     sd._listenEndpoint._port,
             /*outScheme:*/  sd._connectEndpoint._scheme,
             /*outAddress:*/ sd._connectEndpoint._address,
-            /*outPort:*/    sd._connectEndpoint._port
+            /*outPort:*/    sd._connectEndpoint._port,
+                            sd._sndbuf,
+                            sd._rcvbuf
         );
 
         if (!listener)
