@@ -260,6 +260,10 @@ namespace vsockio
         inline bool listening() const { return _fd >= 0; }
 
         int _fd;
+		int _acceptRcvBuf;
+		int _acceptSndBuf;
+		int _peerRcvBuf;
+		int _peerSndBuf;
         std::unique_ptr<Endpoint> _listenEp;
         std::unique_ptr<Endpoint> _listenEpClone;
         std::unique_ptr<Endpoint> _connectEp;
