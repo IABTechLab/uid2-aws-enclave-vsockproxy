@@ -251,6 +251,22 @@ namespace vsockproxy
                         }
                         cs._connectEndpoint = *endpoint;
 					}
+					else if (line._key == "acceptRcvBuf")
+					{
+                        cs._acceptRcvBuf = std::stoi(line._value);
+					}
+					else if (line._key == "acceptSndBuf")
+					{
+                        cs._acceptSndBuf = std::stoi(line._value);
+					}
+					else if (line._key == "peerRcvBuf")
+					{
+                        cs._peerRcvBuf = std::stoi(line._value);
+					}
+					else if (line._key == "peerSndBuf")
+					{
+                        cs._peerSndBuf = std::stoi(line._value);
+					}
 				}
 			}
 		}

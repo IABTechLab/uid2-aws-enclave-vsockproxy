@@ -70,8 +70,12 @@ namespace vsockio
         const int MAX_POLLER_EVENTS = 256;
         const int SO_BACKLOG = 64;
 
-        Listener(std::unique_ptr<Endpoint>&& listenEndpoint, std::unique_ptr<Endpoint>&& connectEndpoint, Dispatcher& dispatcher)
+        Listener(std::unique_ptr<Endpoint>&& listenEndpoint, std::unique_ptr<Endpoint>&& connectEndpoint, Dispatcher& dispatcher, int acceptRcvBuf, int acceptSndBuf, int peerRcvBuf, int peerSndBuf)
             : _fd(-1)
+            , _acceptRcvBuf(acceptRcvBuf)
+            , _acceptSndBuf(acceptSndBuf)
+            , _peerRcvBuf(peerRcvBuf)
+            , _peerSndBuf(peerSndBuf)
             , _listenEp(std::move(listenEndpoint))
             , _connectEp(std::move(connectEndpoint))
             , _events(new VsbEvent[MAX_POLLER_EVENTS])
