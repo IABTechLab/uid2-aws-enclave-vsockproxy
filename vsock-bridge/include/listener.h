@@ -183,6 +183,12 @@ namespace vsockio
                 throw std::runtime_error("error setting SO_RCVBUF");
             }
 
+            if (setsockopt(clientFd, SOL_SOCKET, SO_SNDBUF, &_sndbuf, sizeof(int)) < 0)
+            {
+                close(clientFd);
+                throw std::runtime_error("error setting SO_SNDBUF");
+            }
+
             auto outPeer = connectToPeer();
 			if (!outPeer)
 			{
@@ -216,6 +222,12 @@ namespace vsockio
             {
                 Logger::instance->Log(Logger::ERROR, "failed to turn off Nagle algorithm (fd=", fd, ")");
                 return nullptr;
+            }
+
+            if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &_rcvbuf, sizeof(int)) < 0)
+            {
+                close(fd);
+                throw std::runtime_error("error setting SO_RCVBUF");
             }
 
             if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &_sndbuf, sizeof(int)) < 0)
