@@ -178,7 +178,7 @@ namespace vsockio
                 return;
             }
 
-            if (&_acceptRcvBuf != -1) {
+            if (_acceptRcvBuf != -1) {
                 if (setsockopt(clientFd, SOL_SOCKET, SO_RCVBUF, &_acceptRcvBuf, sizeof(int)) < 0)
                 {
                     close(clientFd);
@@ -186,7 +186,7 @@ namespace vsockio
                 }
             }
 
-            if (&_acceptSndBuf != -1) {
+            if (_acceptSndBuf != -1) {
                 if (setsockopt(clientFd, SOL_SOCKET, SO_SNDBUF, &_acceptSndBuf, sizeof(int)) < 0)
                 {
                     close(clientFd);
@@ -229,7 +229,7 @@ namespace vsockio
                 return nullptr;
             }
 
-            if (&_peerRcvBuf != -1) {
+            if (_peerRcvBuf != -1) {
                 if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &_peerRcvBuf, sizeof(int)) < 0)
                 {
                     close(fd);
@@ -237,7 +237,7 @@ namespace vsockio
                 }
             }
 
-            if (&_peerSndBuf != -1) {
+            if (_peerSndBuf != -1) {
                 if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &_peerSndBuf, sizeof(int)) < 0)
                 {
                     close(fd);
