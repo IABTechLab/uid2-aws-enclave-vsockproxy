@@ -32,6 +32,10 @@ namespace vsockproxy
 		ServiceType _type = ServiceType::UNKNOWN;
 		EndpointConfig _listenEndpoint;
 		EndpointConfig _connectEndpoint;
+		int _acceptRcvBuf = -1;
+		int _acceptSndBuf = -1;
+		int _peerRcvBuf = -1;
+		int _peerSndBuf = -1;
 	};
 
 	std::vector<ServiceDescription> loadConfig(const std::string& filepath);
