@@ -194,6 +194,19 @@ namespace vsockio
                 }
             }
 
+            int debugAcceptRcvbuf;
+            int debugAcceptSndbuf;
+            socklen_t debugAcceptRcvbufLen = sizeof(debugAcceptRcvbuf);
+            socklen_t debugAcceptSndbufLen = sizeof(debugAcceptSndbuf);
+
+            if (getsockopt(clientFd, SOL_SOCKET, SO_RCVBUF, &debugAcceptRcvbuf, &debugAcceptRcvbufLen) == 0) {
+                Logger::instance->Log(Logger::INFO, "Accept client Receive buffer size: ", debugAcceptRcvbuf, "bytes");
+            }
+
+            if (getsockopt(clientFd, SOL_SOCKET, SO_SNDBUF, &debugAcceptSndbuf, &debugAcceptSndbufLen) == 0) {
+                Logger::instance->Log(Logger::INFO, "Accept client Send buffer size: ", debugAcceptSndbuf, "bytes");
+            }
+
             auto outPeer = connectToPeer();
 			if (!outPeer)
 			{
@@ -243,6 +256,19 @@ namespace vsockio
                     close(fd);
                     throw std::runtime_error("error setting _peerSndBuf to SO_SNDBUF");
                 }
+            }
+
+            int debugPeerRcvbuf;
+            int debugPeerSndbuf;
+            socklen_t debugPeerRcvbufLen = sizeof(debugPeerRcvbuf);
+            socklen_t debugPeerSndbufLen = sizeof(debugPeerSndbuf);
+
+            if (getsockopt(fd, SOL_SOCKET, SO_RCVBUF, &debugPeerRcvbuf, &debugPeerRcvbufLen) == 0) {
+                Logger::instance->Log(Logger::INFO, "Peer client Receive buffer size: ", debugPeerRcvbuf, "bytes");
+            }
+
+            if (getsockopt(fd, SOL_SOCKET, SO_SNDBUF, &debugPeerSndbuf, &debugPeerSndbufLen) == 0) {
+                Logger::instance->Log(Logger::INFO, "Peer client Send buffer size: ", debugPeerSndbuf, "bytes");
             }
 
             auto addrAndLen = _connectEp->getAddress();
