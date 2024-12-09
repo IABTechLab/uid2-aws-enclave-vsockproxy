@@ -178,16 +178,20 @@ namespace vsockio
                 return;
             }
 
-            if (setsockopt(clientFd, SOL_SOCKET, SO_RCVBUF, &_acceptRcvBuf, sizeof(int)) < 0)
-            {
-                close(clientFd);
-                throw std::runtime_error("error setting _acceptRcvBuf to SO_RCVBUF");
+            if (&_acceptRcvBuf != -1) {
+                if (setsockopt(clientFd, SOL_SOCKET, SO_RCVBUF, &_acceptRcvBuf, sizeof(int)) < 0)
+                {
+                    close(clientFd);
+                    throw std::runtime_error("error setting _acceptRcvBuf to SO_RCVBUF");
+                }
             }
 
-            if (setsockopt(clientFd, SOL_SOCKET, SO_SNDBUF, &_acceptSndBuf, sizeof(int)) < 0)
-            {
-                close(clientFd);
-                throw std::runtime_error("error setting _acceptSndBuf to SO_SNDBUF");
+            if (&_acceptSndBuf != -1) {
+                if (setsockopt(clientFd, SOL_SOCKET, SO_SNDBUF, &_acceptSndBuf, sizeof(int)) < 0)
+                {
+                    close(clientFd);
+                    throw std::runtime_error("error setting _acceptSndBuf to SO_SNDBUF");
+                }
             }
 
             auto outPeer = connectToPeer();
@@ -225,16 +229,20 @@ namespace vsockio
                 return nullptr;
             }
 
-            if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &_peerRcvBuf, sizeof(int)) < 0)
-            {
-                close(fd);
-                throw std::runtime_error("error setting _peerRcvBuf to SO_RCVBUF");
+            if (&_peerRcvBuf != -1) {
+                if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &_peerRcvBuf, sizeof(int)) < 0)
+                {
+                    close(fd);
+                    throw std::runtime_error("error setting _peerRcvBuf to SO_RCVBUF");
+                }
             }
 
-            if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &_peerSndBuf, sizeof(int)) < 0)
-            {
-                close(fd);
-                throw std::runtime_error("error setting _peerSndBuf to SO_SNDBUF");
+            if (&_peerSndBuf != -1) {
+                if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &_peerSndBuf, sizeof(int)) < 0)
+                {
+                    close(fd);
+                    throw std::runtime_error("error setting _peerSndBuf to SO_SNDBUF");
+                }
             }
 
             auto addrAndLen = _connectEp->getAddress();
