@@ -70,8 +70,12 @@ namespace vsockio
         const int MAX_POLLER_EVENTS = 256;
         const int SO_BACKLOG = 64;
 
-        Listener(std::unique_ptr<Endpoint>&& listenEndpoint, std::unique_ptr<Endpoint>&& connectEndpoint, Dispatcher& dispatcher)
+        Listener(std::unique_ptr<Endpoint>&& listenEndpoint, std::unique_ptr<Endpoint>&& connectEndpoint, Dispatcher& dispatcher, int acceptRcvBuf, int acceptSndBuf, int peerRcvBuf, int peerSndBuf)
             : _fd(-1)
+            , _acceptRcvBuf(acceptRcvBuf)
+            , _acceptSndBuf(acceptSndBuf)
+            , _peerRcvBuf(peerRcvBuf)
+            , _peerSndBuf(peerSndBuf)
             , _listenEp(std::move(listenEndpoint))
             , _connectEp(std::move(connectEndpoint))
             , _events(new VsbEvent[MAX_POLLER_EVENTS])
@@ -174,6 +178,35 @@ namespace vsockio
                 return;
             }
 
+            if (_acceptRcvBuf != -1) {
+                if (setsockopt(clientFd, SOL_SOCKET, SO_RCVBUF, &_acceptRcvBuf, sizeof(int)) < 0)
+                {
+                    close(clientFd);
+                    throw std::runtime_error("error setting _acceptRcvBuf to SO_RCVBUF");
+                }
+            }
+
+            if (_acceptSndBuf != -1) {
+                if (setsockopt(clientFd, SOL_SOCKET, SO_SNDBUF, &_acceptSndBuf, sizeof(int)) < 0)
+                {
+                    close(clientFd);
+                    throw std::runtime_error("error setting _acceptSndBuf to SO_SNDBUF");
+                }
+            }
+
+            int debugAcceptRcvbuf;
+            int debugAcceptSndbuf;
+            socklen_t debugAcceptRcvbufLen = sizeof(debugAcceptRcvbuf);
+            socklen_t debugAcceptSndbufLen = sizeof(debugAcceptSndbuf);
+
+            if (getsockopt(clientFd, SOL_SOCKET, SO_RCVBUF, &debugAcceptRcvbuf, &debugAcceptRcvbufLen) == 0) {
+                Logger::instance->Log(Logger::INFO, "Accept client Receive buffer size: ", debugAcceptRcvbuf, "bytes");
+            }
+
+            if (getsockopt(clientFd, SOL_SOCKET, SO_SNDBUF, &debugAcceptSndbuf, &debugAcceptSndbufLen) == 0) {
+                Logger::instance->Log(Logger::INFO, "Accept client Send buffer size: ", debugAcceptSndbuf, "bytes");
+            }
+
             auto outPeer = connectToPeer();
 			if (!outPeer)
 			{
@@ -209,6 +242,35 @@ namespace vsockio
                 return nullptr;
             }
 
+            if (_peerRcvBuf != -1) {
+                if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &_peerRcvBuf, sizeof(int)) < 0)
+                {
+                    close(fd);
+                    throw std::runtime_error("error setting _peerRcvBuf to SO_RCVBUF");
+                }
+            }
+
+            if (_peerSndBuf != -1) {
+                if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &_peerSndBuf, sizeof(int)) < 0)
+                {
+                    close(fd);
+                    throw std::runtime_error("error setting _peerSndBuf to SO_SNDBUF");
+                }
+            }
+
+            int debugPeerRcvbuf;
+            int debugPeerSndbuf;
+            socklen_t debugPeerRcvbufLen = sizeof(debugPeerRcvbuf);
+            socklen_t debugPeerSndbufLen = sizeof(debugPeerSndbuf);
+
+            if (getsockopt(fd, SOL_SOCKET, SO_RCVBUF, &debugPeerRcvbuf, &debugPeerRcvbufLen) == 0) {
+                Logger::instance->Log(Logger::INFO, "Peer client Receive buffer size: ", debugPeerRcvbuf, "bytes");
+            }
+
+            if (getsockopt(fd, SOL_SOCKET, SO_SNDBUF, &debugPeerSndbuf, &debugPeerSndbufLen) == 0) {
+                Logger::instance->Log(Logger::INFO, "Peer client Send buffer size: ", debugPeerSndbuf, "bytes");
+            }
+
             auto addrAndLen = _connectEp->getAddress();
             int status = connect(fd, addrAndLen.first, addrAndLen.second);
             if (status == 0)
@@ -232,6 +294,10 @@ namespace vsockio
         inline bool listening() const { return _fd >= 0; }
 
         int _fd;
+		int _acceptRcvBuf;
+		int _acceptSndBuf;
+		int _peerRcvBuf;
+		int _peerSndBuf;
         std::unique_ptr<Endpoint> _listenEp;
         std::unique_ptr<Endpoint> _listenEpClone;
         std::unique_ptr<Endpoint> _connectEp;
