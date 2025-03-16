@@ -70,8 +70,11 @@ namespace vsockio
         const int MAX_POLLER_EVENTS = 256;
         const int SO_BACKLOG = 64;
 
-        Listener(std::unique_ptr<Endpoint>&& listenEndpoint, std::unique_ptr<Endpoint>&& connectEndpoint, Dispatcher& dispatcher)
+        Listener(std::unique_ptr<Endpoint>&& listenEndpoint, std::unique_ptr<Endpoint>&& connectEndpoint, Dispatcher& dispatcher,
+                 int SNDBUF, int RCVBUF)
             : _fd(-1)
+            , _sndbuf(SNDBUF)
+            , _rcvbuf(RCVBUF)
             , _listenEp(std::move(listenEndpoint))
             , _connectEp(std::move(connectEndpoint))
             , _events(new VsbEvent[MAX_POLLER_EVENTS])
@@ -174,6 +177,18 @@ namespace vsockio
                 return;
             }
 
+            if (setsockopt(clientFd, SOL_SOCKET, SO_RCVBUF, &_rcvbuf, sizeof(int)) < 0)
+            {
+                close(clientFd);
+                throw std::runtime_error("error setting SO_RCVBUF");
+            }
+
+            if (setsockopt(clientFd, SOL_SOCKET, SO_SNDBUF, &_sndbuf, sizeof(int)) < 0)
+            {
+                close(clientFd);
+                throw std::runtime_error("error setting SO_SNDBUF");
+            }
+
             auto outPeer = connectToPeer();
 			if (!outPeer)
 			{
@@ -209,6 +224,18 @@ namespace vsockio
                 return nullptr;
             }
 
+            if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &_rcvbuf, sizeof(int)) < 0)
+            {
+                close(fd);
+                throw std::runtime_error("error setting SO_RCVBUF");
+            }
+
+            if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &_sndbuf, sizeof(int)) < 0)
+            {
+                close(fd);
+                throw std::runtime_error("error setting SO_SNDBUF");
+            }
+
             auto addrAndLen = _connectEp->getAddress();
             int status = connect(fd, addrAndLen.first, addrAndLen.second);
             if (status == 0)
@@ -232,6 +259,8 @@ namespace vsockio
         inline bool listening() const { return _fd >= 0; }
 
         int _fd;
+        int _sndbuf;
+        int _rcvbuf;
         std::unique_ptr<Endpoint> _listenEp;
         std::unique_ptr<Endpoint> _listenEpClone;
         std::unique_ptr<Endpoint> _connectEp;
